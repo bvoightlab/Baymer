@@ -1,11 +1,11 @@
 #!/usr/bin/Python
 
-# Created by: Christopher J Adams 4/25/2021
+# Created by: Christopher J Adams 9/7/2022
 # 
 
 ###############################################################################
 ###
-### This script will plot the mcmc sample outputs for the simple mcmc model
+### This script will plot baymer posterior distributions and summarize the data
 ###
 ###############################################################################
 
@@ -16,37 +16,16 @@
 import sys
 import getopt
 import os
-import re
 import yaml
 import json
-import time
-import math
-from scipy.stats import multinomial
 from scipy.stats import norm
-from scipy.stats import chi2
-from itertools import combinations
 import matplotlib as mpl
-import matplotlib.pyplot as plt
-from matplotlib import colors
-from matplotlib import collections as mc
+import mpl.pyplot as plt
+from mpl import colors
+from mpl import collections as mc
 mpl.rcParams['agg.path.chunksize'] = 10000
-from matplotlib import rcParams
+from mpl import rcParams
 rcParams.update({'figure.autolayout': True})
-import pandas as pd
-import numpy as np
-import random
-import gzip
-sys.path.append(os.path.join(os.path.dirname(sys.path[0]), 'modules'))
-sys.path.append(os.path.join(os.path.dirname(sys.path[0]), 'model_generation'))
-sys.path.append(os.path.join(os.path.dirname(sys.path[0]), 'collapse_model'))
-import projection_functions
-import likelihood_ratio_test_class
-import count_utils
-import wrapper_full_mer_model as rate_dict_generator
-import fold_rate_dicts
-import exhaustive_mer_expansion
-import collapsing_algorithm_classes
-import probabilistic_tree_pruning_functions_single_parameter_change_dynamic_groups as ptpf
 import general_utils
 
 
@@ -55,13 +34,7 @@ def help(exit_num=1):
 ARGUMENTS
     -c => <yaml> config file REQUIRED
     -o => <dir> output directory REQUIRED
-    -d => <bool> no plotting OPTIONAL
-    -s => <int> start layer OPTIONAL
-    -p => <boolean> plot only OPTIONAL
-    -t => <boolean> skip theta plots OPTIONAL
-    -b => <yaml> override burnin yaml OPTIONAL
-NOTE
-* skipping theta plots and setting a non-zero start layer automatically sets to plot only
+    -t => <boolean> plot theta plots OPTIONAL
 """)
     sys.exit(exit_num)
 
@@ -75,7 +48,7 @@ NOTE
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "c:o:dpts:b:")
+        opts, args = getopt.getopt(sys.argv[1:], "c:o:t")
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
         help()
@@ -90,28 +63,17 @@ def main(argv):
     except KeyError:
         print("Error: One of your required arguments does not exist.")
         help()
-    start_layer = int(options_dict.get('-s', 0))
-    dict_only = options_dict.get('-d', False)
-    override_burnin_yaml = options_dict.get('-b', False)
-    if dict_only == '':
-        dict_only = True
-    plot_only = options_dict.get('-p', False)
-    if plot_only == '':
-        plot_only = True
-    skip_thetas = options_dict.get('-t', False)
-    if skip_thetas == '':
-        skip_thetas = True
     
-    if start_layer > 0 or skip_thetas:
-        plot_only = True
+    plot_thetas = options_dict.get('-t', False)
+    if plot_thetas == '':
+        plot_thetas = True
+    
 
-    if start_layer != 0:
-        plot_only = True
     print("Acceptable Inputs Given")
     
     
 
-    driver(config_file, output_dir, dict_only, plot_only, start_layer, skip_thetas, override_burnin_yaml)
+    driver(config_file, output_dir, skip_thetas)
 
 
 ###############################################################################
@@ -122,13 +84,10 @@ def main(argv):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(config_file, output_dir, dict_only, plot_only, start_layer, skip_thetas, override_burnin_yaml):
+def driver(config_file, output_dir, plot_thetas):
 
     config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
     
-    if override_burnin_yaml:
-        override_burnin_yaml = yaml.load(open(override_burnin_yaml, 'r'), Loader=yaml.SafeLoader)    
-        
     #train_data_list = ['EVEN', 'ODD']
     # gather overall info from config dict
     max_layer = config_dict['max_layer']
@@ -140,7 +99,7 @@ def driver(config_file, output_dir, dict_only, plot_only, start_layer, skip_thet
     dataset = config_dict['dataset']
     c = config_dict['c']
     summary_posterior_dict = {dataset: {}}
-    for layer in range(start_layer, max_layer + 1):
+    for layer in range(0, max_layer + 1):
         print("Layer ", layer)
         summary_posterior_dict[dataset][layer] = {}
         # gather layer data
@@ -152,14 +111,6 @@ def driver(config_file, output_dir, dict_only, plot_only, start_layer, skip_thet
         burnin = config_dict[layer]["burnin"]
         thinning_parameter = config_dict[layer]["thinning_parameter"]
         thinned_burnin = 0
-        if override_burnin_yaml:
-            thinned_num_samples = (num_iterations - burnin) / thinning_parameter
-            try:
-                burnin = override_burnin_yaml[layer]
-            except KeyError:
-                continue
-            new_burnin_num_samples = (num_iterations - burnin) / thinning_parameter
-            thinned_burnin = thinned_num_samples - new_burnin_num_samples
 
         # make output directory
         dir_name = "layer_" + str(layer)
@@ -179,7 +130,7 @@ def driver(config_file, output_dir, dict_only, plot_only, start_layer, skip_thet
         theta_data_list = []
         ind_data_list = []
         # first thetas and p_vec
-        if not skip_thetas:
+        if plot_thetas:
             for random_seed in random_seeds:
                 theta_chain_matrix_file = "{}{}_{}_{}_rs{}_thetas.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
                 theta_data_list.append(theta_chain_matrix_file)
@@ -195,7 +146,7 @@ def driver(config_file, output_dir, dict_only, plot_only, start_layer, skip_thet
             except FileExistsError:
                 pass
 
-            plot_theta_chain(layer, random_seeds, theta_data_list, p_data_list, ind_data_list, theta_out_dir, index_context_dict, true_values_dict, summary_posterior_dict[dataset][layer], dict_only, plot_only, thinned_burnin)
+            plot_theta_chain(layer, random_seeds, theta_data_list, p_data_list, ind_data_list, theta_out_dir, index_context_dict, true_values_dict, summary_posterior_dict[dataset][layer], thinned_burnin, plot_thetas)
             print('thetas plotted')
         # next sigmas, alphas, and indicators
         if layer != 0:
@@ -227,10 +178,10 @@ def driver(config_file, output_dir, dict_only, plot_only, start_layer, skip_thet
             likelihood_data_list.append(likelihood_chain_matrix_file)
         
         plot_likelihoods(random_seeds, likelihood_data_list, burnin, thinning_parameter, layer_output_dir, summary_posterior_dict[dataset][layer])
-    if not plot_only:
-        posterior_dict_out_file = "{}/{}.{}.{}.final_posterior_summaries.json".format(output_dir, pop, feature, dataset)
-        with open(posterior_dict_out_file, 'w') as jFile:
-            json.dump(summary_posterior_dict, jFile)
+        
+    posterior_dict_out_file = "{}/{}.{}.{}.final_posterior_summaries.json".format(output_dir, pop, feature, dataset)
+    with open(posterior_dict_out_file, 'w') as jFile:
+        json.dump(summary_posterior_dict, jFile)
     
 
 def plot_likelihoods(chain_lists, data_list, burnin, thinning_parameter, output_dir, summary_posterior_dict):
@@ -300,7 +251,7 @@ def plot_likelihoods(chain_lists, data_list, burnin, thinning_parameter, output_
     plt.savefig(output_file)
  
 
-def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_list, output_dir, index_context_dict, true_values_dict, summary_posterior_dict, dict_only, plot_only, thinned_burnin):
+def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_list, output_dir, index_context_dict, true_values_dict, summary_posterior_dict, thinned_burnin, plot_thetas):
     
     
     fig, axs = plt.subplots(4, figsize = (10, 30))
@@ -366,46 +317,30 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
                 ind_row = ind_data_matrix[thinned_burnin:, index, :]
             context_string = index_context_dict[str(index)]
             
-            if not plot_only:
-                if i == 0:
-                    p_vec_all_chains_dict[context_string] = p_row
-                    theta_all_chains_dict[context_string] = theta_row
-                    if not no_ind:
-                        ind_all_chains_dict[context_string] = ind_row
-                else:
-                    p_vec_all_chains_dict[context_string] = np.append(p_vec_all_chains_dict[context_string], p_row, axis = 0)
-                    theta_all_chains_dict[context_string] = np.append(theta_all_chains_dict[context_string], theta_row, axis = 0)
-                    if not no_ind:
-                        ind_all_chains_dict[context_string] = np.append(ind_all_chains_dict[context_string], ind_row, axis = 0)
-                if i == num_chains - 1:
-                    summary_posterior_dict['theta'][context_string] = {}
-                    summary_posterior_dict['p_vec'][context_string] = {}
-                    theta_array = theta_all_chains_dict[context_string] 
-                    p_vec_array = p_vec_all_chains_dict[context_string] 
-                    
-                   
+            if i == 0:
+                p_vec_all_chains_dict[context_string] = p_row
+                theta_all_chains_dict[context_string] = theta_row
+                if not no_ind:
+                    ind_all_chains_dict[context_string] = ind_row
+            else:
+                p_vec_all_chains_dict[context_string] = np.append(p_vec_all_chains_dict[context_string], p_row, axis = 0)
+                theta_all_chains_dict[context_string] = np.append(theta_all_chains_dict[context_string], theta_row, axis = 0)
+                if not no_ind:
+                    ind_all_chains_dict[context_string] = np.append(ind_all_chains_dict[context_string], ind_row, axis = 0)
+            if i == num_chains - 1:
+                summary_posterior_dict['theta'][context_string] = {}
+                summary_posterior_dict['p_vec'][context_string] = {}
+                theta_array = theta_all_chains_dict[context_string] 
+                p_vec_array = p_vec_all_chains_dict[context_string] 
 
-                    summary_posterior_dict['theta'][context_string]['mean'] = np.mean(theta_array, axis = 0).tolist()
-                    summary_posterior_dict['p_vec'][context_string]['mean'] = np.mean(p_vec_array, axis = 0).tolist()
+                summary_posterior_dict['theta'][context_string]['mean'] = np.mean(theta_array, axis = 0).tolist()
+                summary_posterior_dict['p_vec'][context_string]['mean'] = np.mean(p_vec_array, axis = 0).tolist()
 
-                    theta_interval_95_list = []
-                    p_vec_interval_95_list = []
-                    for j in range(3):
-                        interval_95_array = sorted(theta_array[:, j])[int(0.025 * len(theta_array)):int(0.975 * len(theta_array))]
-                        interval_95 = np.array([interval_95_array[0], interval_95_array[-1]]).tolist()
-                        theta_interval_95_list.append(interval_95)
-
-                        interval_95_array = sorted(p_vec_array[:, j])[int(0.025 * len(p_vec_array)):int(0.975 * len(p_vec_array))]
-                        interval_95 = np.array([interval_95_array[0], interval_95_array[-1]]).tolist()
-
-                        p_vec_interval_95_list.append(interval_95)
-                    summary_posterior_dict['theta'][context_string]['interval_95'] = theta_interval_95_list
-                    summary_posterior_dict['p_vec'][context_string]['interval_95'] = p_vec_interval_95_list
-                    
+                
             
 
 
-            if dict_only:
+            if not plot_thetas:
                 continue
             center_nuc = context_string[int(len(context_string)/2)]
             if len(context_string) % 2 == 0:
@@ -476,21 +411,17 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
     file_name = "{}/theta_distribution_histograms.layer_{}.png".format(output_dir, layer)
     plt.savefig(file_name)
     plt.close(fig)
-
-    if dict_only:
+    
+    if not plot_thetas:
         return
     print('+++++++')
     # all data has been gathered
     for context_string in posterior_distribution_dict['theta']:
-        #print(context_string)
        
         fig, axs = plt.subplots(3,3, figsize = (25, 25))
         if not no_ind:
             plt.close(fig)
             fig, axs = plt.subplots(4,3, figsize = (25, 35))
-        #full_title = "{} theta posterior plots".format(context_string)
-        #fig.suptitle(full_title)
-        #fig.tight_layout(h_pad = 2)
         plt.subplots_adjust(top=0.85)
         mean_chain = 0
         
@@ -514,13 +445,8 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
                 axs[0, mut_string_index].hist(p_y_vals, alpha = 0.5, label = chain_label)
                 axs[0, mut_string_index].set(xlabel = "multinomial p")
                 axs[0, mut_string_index].set_title(mut_string)
-                #p_mean_chain = np.mean(p_y_vals)
-                #axs[0, mut_string_index].axvline(x = p_mean_chain, linestyle = 'dashed', label = "{} mean posterior".format(chain_label))
                 axs[1, mut_string_index].hist(theta_y_vals, alpha = 0.5, label = chain_label)
                 axs[1, mut_string_index].set(xlabel = "Theta")
-                #print(chain)
-                #theta_mean_chain = np.mean(theta_burned_in_thinned_chain)
-                #axs[1, mut_string_index].axvline(x = theta_mean_chain, linestyle = 'dashed', label = "{} mean posterior".format(chain_label))
  
                 axs[2, mut_string_index].plot(x_vals, theta_y_vals, label = chain_label)
                 if not no_ind:
@@ -558,10 +484,6 @@ def plot_alpha_chain(chain_lists, alpha_data_list, ind_data_list, output_dir, su
     num_chains = len(chain_lists)
     
     fig, axs = plt.subplots(3, figsize = (12, 16))
-
-    #full_title = "{} theta posterior plots".format(context_string)
-    #fig.suptitle(full_title)
-    #fig.tight_layout(h_pad = 2)
     plt.subplots_adjust(top=0.85)
     
     axs[0].set(xlabel = "alpha")
@@ -575,7 +497,6 @@ def plot_alpha_chain(chain_lists, alpha_data_list, ind_data_list, output_dir, su
     for i in range(num_chains):
         chain = chain_lists[i]
         chain_label = "rs{}".format(chain)
-        print(chain_label)
         mat = alpha_data_list[i]
         alpha_data_array = np.load(mat)[thinned_burnin:]
         ind_mat = ind_data_list[i]
@@ -584,15 +505,12 @@ def plot_alpha_chain(chain_lists, alpha_data_list, ind_data_list, output_dir, su
         
         index = 0
         mer_level = 0
-        #print('++++++++')
-        #for row in transposed_data:
         if i == 0:
             all_alpha_chains = alpha_data_array
         else:
             all_alpha_chains = np.append(all_alpha_chains, alpha_data_array)
         if i == num_chains - 1:
             summary_posterior_dict['alpha'] = float(np.mean(all_alpha_chains))
-        # plot the first ax
         axs[0].hist(alpha_data_array, alpha = 0.5, label = chain_label, bins = np.arange(0, 1.001, 0.001))
         
         x_vals = range(len(alpha_data_array))
@@ -621,9 +539,6 @@ def plot_sigma_chain(chain_lists, sigma_data_list, output_dir, c, summary_poster
     
     fig, axs = plt.subplots(3, figsize = (12, 20))
 
-    #full_title = "{} theta posterior plots".format(context_string)
-    #fig.suptitle(full_title)
-    #fig.tight_layout(h_pad = 2)
     plt.subplots_adjust(top=0.85)
     
     axs[0].set(xlabel = "slab sigma")
@@ -636,7 +551,6 @@ def plot_sigma_chain(chain_lists, sigma_data_list, output_dir, c, summary_poster
     for i in range(num_chains):
         chain = chain_lists[i]
         chain_label = "rs{}".format(chain)
-        print(chain_label)
         mat = sigma_data_list[i]
         sigma_data_array = np.load(mat)[thinned_burnin:]
         if i == 0:
@@ -679,11 +593,7 @@ def plot_indicator_distribution(chain_lists, ind_data_list, output_dir, index_co
     all_chains_indicator_dict = {}
     summary_posterior_dict['ind'] = {}
     fig, axs = plt.subplots(3, figsize = (10, 20))
-
     
-    #full_title = "{} theta posterior plots".format(context_string)
-    #fig.suptitle(full_title)
-    #fig.tight_layout(h_pad = 2)
     plt.subplots_adjust(top=0.85)
     
     ax_per_slab = axs[0]
