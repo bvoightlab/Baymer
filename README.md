@@ -13,3 +13,20 @@ After installing mini-conda, run the following commands to install Baymer:
 Installation should take less than 5 minutes. After installing, you can activate the conda environment containing the installed Baymer package:
 conda activate baymer
 
+## Running Baymer
+
+### Generating Baymer Input Files
+
+Baymer expects jsons of the following format as as input files:
+
+{Context: [A polymorphisms, C polymorphisms, G polymorphisms, T polymorphisms, total contexts, context reference index, list reference index], ...}
+
+where the "context reference index" is the 0-indexed position of the reference nucleotide in the context and "list reference index" is the position in the list of the reference nucleotide. Therefore, for the 3-mer context "AAA", the context reference index would be 1 and the list reference index would be 0.
+
+Note that the input json should only contain a single context reference index and sequence context length.
+
+Generating these files necessitates counting both the contexts and the polymorphism counts. We have provided scripts to count these quantities if desired.
+
+#### Counting Contexts
+
+
