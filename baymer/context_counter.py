@@ -135,7 +135,7 @@ def driver(fasta_config_file, feature, mer_length, context_output_file, offset, 
     #### GATHER/INIT GENERAL INFORMATION ####
     fasta_config_dict = yaml.load(open(fasta_config_file, 'r'), Loader=yaml.SafeLoader)
  
-    fasta_file_dict = fasta_config_dict['features'][feature]['fastas']
+    fasta_file_dict = fasta_config_dict["features"][feature]['fastas']
     chrom_list = list(fasta_file_dict.keys()) 
     #### BEGIN PARALLELIZED CHROMOSOME COUNTS ####
     pool = mp.Pool(mp.cpu_count())
