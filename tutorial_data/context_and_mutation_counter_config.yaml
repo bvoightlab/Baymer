@@ -4,19 +4,17 @@ ancestral:
   True
 genome_build:
   'GRCh38'
-POP1:
+AFR:
   vcf_files:
-    chr1: "tutorial_data/chr1.test_data.vcf.gz"
-POP2:
+    chr1: "tutorial_data/chr1.AFR.cpg_islands.vcf.bgz"
+EAS:
   vcf_files:
-    chr2: "tutorial_data/chr2.test_data.vcf.gz"
+    chr1: "tutorial_data/chr1.EAS.cpg_islands.vcf.bgz"
 features:
   nc_accessibility_mask:
-    bed: "tutorial_data/nc_accessibility_mask.bed"
+    bed: "tutorial_data/cpg_islands.bed"
     fastas: 
-      chr1: "tutorial_data/nc_accessibility_mask.5_bp_buffer.homo_sapiens_ancestor_1.fa.gz"
-      chr2: "tutorial_data/nc_accessibility_mask.5_bp_buffer.homo_sapiens_ancestor_2.fa.gz"
+      chr1: "tutorial_data/chr1.cpg_islands.ancestral.fa"
 chromosomes:
   - "chr1"
-  - "chr2"
 ...
