@@ -6,16 +6,16 @@ genome_build:
   'GRCh38'
 POP1:
   vcf_files:
-    chr1: "chr1.test_data.vcf.gz"
+    chr1: "tutorial_data/chr1.test_data.vcf.gz"
 POP2:
   vcf_files:
-    chr2: "chr2.test_data.vcf.gz"
+    chr2: "tutorial_data/chr2.test_data.vcf.gz"
 features:
   nc_accessibility_mask:
-    bed: "nc_accessibility_mask.bed"
+    bed: "tutorial_data/nc_accessibility_mask.bed"
     fastas: 
-      chr1: "nc_accessibility_mask.5_bp_buffer.homo_sapiens_ancestor_1.fa.gz"
-      chr2: "nc_accessibility_mask.5_bp_buffer.homo_sapiens_ancestor_2.fa.gz"
+      chr1: "tutorial_data/nc_accessibility_mask.5_bp_buffer.homo_sapiens_ancestor_1.fa.gz"
+      chr2: "tutorial_data/nc_accessibility_mask.5_bp_buffer.homo_sapiens_ancestor_2.fa.gz"
 chromosomes:
   - "chr1"
   - "chr2"
