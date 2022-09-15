@@ -25,7 +25,7 @@ where the "context reference index" is the 0-indexed position of the reference n
 
 Note that the input json should only contain a single context reference index and sequence context length.
 
-Generating these files necessitates counting both the contexts and the polymorphism counts. We have provided scripts to count these quantities if desired.
+Generating these files necessitates counting both the contexts and the polymorphism counts. We have provided scripts to count these quantities and format the proper json if desired.
 
 #### Counting Contexts
 
