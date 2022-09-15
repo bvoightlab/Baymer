@@ -84,7 +84,7 @@ def main(argv):
 
     print("Acceptable Inputs Given")
 
-    driver(fasta_config_file, feature, int(mer_length), context_output_file, int(offset), int(buffer_bp), unfolded, high_confidence)
+    driver(fasta_config_file = fasta_config_file, feature = feature, mer_length = int(mer_length), context_output_file = context_output_file, offset = int(offset), buffer_bp = int(buffer_bp), unfolded = unfolded, high_confidence = high_confidence)
 
 
 ## Makes sure that all the arguments given are congruent with one another.
@@ -138,9 +138,8 @@ def driver(fasta_config_file, feature, mer_length, context_output_file, offset, 
     fasta_file_dict = fasta_config_dict["features"][feature]['fastas']
     chrom_list = list(fasta_file_dict.keys()) 
     #### BEGIN PARALLELIZED CHROMOSOME COUNTS ####
-    pool = mp.Pool(mp.cpu_count())
     print(mp.cpu_count())
-    pool = mp.Pool(len(chrom_list))
+    pool = mp.Pool(min([len(chrom_list), mp.cpu_count()]))
     chrom_results = [pool.apply(count_contexts, args=(chrom, fasta_file_dict, mer_length, offset, buffer_bp, unfolded, high_confidence)) for chrom in chrom_list]
     pool.close()
     
@@ -186,14 +185,25 @@ def count_contexts(chrom, fasta_file_dict, mer_length, offset, buffer_bp, unfold
     metadata_dict = {'n': 0, 'nuc_n': 0, 'total_regions': 0}
 
     context_count_dict = initialize_count_dicts(mer_length, left_flank, right_flank, unfolded)
+    
     fasta_file = fasta_file_dict[chrom]
+    
 
     #### BEGIN READING THROUGH FASTA ####
-    with open(fasta_file, 'r') as handle:
-        for record in SeqIO.parse(handle, 'fasta'):
-            fasta_seq = str(record.seq)
-            fasta_pos = int(str(record.id).strip().split(':')[1].split('-')[0]) + mut_nuc_pos + 1
-            iterate_through_fasta_seq(context_count_dict, fasta_seq, fasta_pos, mer_length, offset, mut_nuc_pos, full_region_length, unfolded, left_seq_edge, high_confidence)
+    # open the fasta and check whether it's zipped
+    if fasta_file[-2:] == "gz":
+        with gzip.open(fasta_file, 'rt') as handle:
+            for record in SeqIO.parse(handle, 'fasta'):
+                fasta_seq = str(record.seq)
+                fasta_pos = int(str(record.id).strip().split(':')[1].split('-')[0]) + mut_nuc_pos + 1
+                iterate_through_fasta_seq(context_count_dict, fasta_seq, fasta_pos, mer_length, offset, mut_nuc_pos, full_region_length, unfolded, left_seq_edge, high_confidence)
+             
+    else:
+        with open(fasta_file, 'r') as handle:
+            for record in SeqIO.parse(handle, 'fasta'):
+                fasta_seq = str(record.seq)
+                fasta_pos = int(str(record.id).strip().split(':')[1].split('-')[0]) + mut_nuc_pos + 1
+                iterate_through_fasta_seq(context_count_dict, fasta_seq, fasta_pos, mer_length, offset, mut_nuc_pos, full_region_length, unfolded, left_seq_edge, high_confidence)
     
     return context_count_dict
 
