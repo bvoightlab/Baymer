@@ -25,6 +25,7 @@ import numpy as np
 import random
 from numba import njit, prange, vectorize, float64
 
+sys.path.append(os.path.join(os.path.dirname(sys.path[0]), 'baymer'))
 import baymer_mcmc_functions as mcmc_functions
 
 def help(exit_num=1):
