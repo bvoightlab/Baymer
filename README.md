@@ -15,7 +15,7 @@ conda activate baymer
 
 ## Running Baymer
 
-Note that all scripts can be run as standalone programs or imported and collapsed into a single script, as demonstrated in the tutorial jupyter notebook.
+Note that all scripts can be run as standalone programs or imported and collapsed into a single script, as demonstrated in the [tutorial jupyter notebook](https://github.com/bvoightlab/Baymer/blob/main/baymer_tutorial.ipynb).
 
 ### Generating Baymer Input Files
 
