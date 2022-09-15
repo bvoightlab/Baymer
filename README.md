@@ -15,6 +15,8 @@ conda activate baymer
 
 ## Running Baymer
 
+Note that all scripts can be run as standalone programs or imported and collapsed into a single script, as demonstrated in the tutorial jupyter notebook.
+
 ### Generating Baymer Input Files
 
 Baymer expects jsons of the following format as as input files:
