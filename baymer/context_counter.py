@@ -22,7 +22,7 @@ import yaml
 def help(error_num=1):
     print("""-----------------------------------------------------------------
 ARGUMENTS
-    -f => <yaml> fasta feature config file REQUIRED
+    -c => <yaml> config file REQUIRED
     --feature => <string> feature of interest REQUIRED
     -m => <int> mer length REQUIRED
     --co => <string> Specifies context count output file REQUIRED
@@ -55,7 +55,7 @@ NOTES
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "f:p:m:o:b:a:u:h", ['feature=', 'co='])
+        opts, args = getopt.getopt(sys.argv[1:], "c:p:m:o:b:a:u:h", ['feature=', 'co='])
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
         help() 
@@ -64,7 +64,7 @@ def main(argv):
 
     ## Required arguments
     try:
-        fasta_config_file = options_dict['-f']
+        fasta_config_file = options_dict['-c']
         feature = options_dict['--feature']
         mer_length = options_dict['-m']
         context_output_file = options_dict['--co']
@@ -84,7 +84,7 @@ def main(argv):
 
     print("Acceptable Inputs Given")
 
-    driver(fasta_config_file = fasta_config_file, feature = feature, mer_length = int(mer_length), context_output_file = context_output_file, offset = int(offset), buffer_bp = int(buffer_bp), unfolded = unfolded, high_confidence = high_confidence)
+    driver(config_file = config_file, feature = feature, mer_length = int(mer_length), context_output_file = context_output_file, offset = int(offset), buffer_bp = int(buffer_bp), unfolded = unfolded, high_confidence = high_confidence)
 
 
 ## Makes sure that all the arguments given are congruent with one another.
@@ -130,15 +130,14 @@ def check_arguments(mer_length, offset, buffer_bp):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(fasta_config_file, feature, mer_length, context_output_file, offset, buffer_bp, unfolded, high_confidence):
+def driver(config_file, feature, mer_length, context_output_file, offset, buffer_bp, unfolded, high_confidence):
     
     #### GATHER/INIT GENERAL INFORMATION ####
-    fasta_config_dict = yaml.load(open(fasta_config_file, 'r'), Loader=yaml.SafeLoader)
+    config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
  
-    fasta_file_dict = fasta_config_dict["features"][feature]['fastas']
+    fasta_file_dict = config_dict["features"][feature]['fastas']
     chrom_list = list(fasta_file_dict.keys()) 
     #### BEGIN PARALLELIZED CHROMOSOME COUNTS ####
-    print(mp.cpu_count())
     pool = mp.Pool(min([len(chrom_list), mp.cpu_count()]))
     chrom_results = [pool.apply(count_contexts, args=(chrom, fasta_file_dict, mer_length, offset, buffer_bp, unfolded, high_confidence)) for chrom in chrom_list]
     pool.close()
@@ -161,7 +160,7 @@ def driver(fasta_config_file, feature, mer_length, context_output_file, offset, 
     
     context_count_master_df.to_csv(context_output_file, sep = '\t')
 
-    print("Output files successfully saved")
+    print("Output file successfully saved")
 
 def count_contexts(chrom, fasta_file_dict, mer_length, offset, buffer_bp, unfolded, high_confidence):
 
