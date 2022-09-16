@@ -11,7 +11,7 @@ EAS:
   vcf_files:
     chr1: "tutorial_data/chr1.EAS.cpg_islands.vcf.bgz"
 features:
-  nc_accessibility_mask:
+  cpg_islands:
     bed: "tutorial_data/cpg_islands.bed"
     fastas: 
       chr1: "tutorial_data/chr1.cpg_islands.ancestral.fa"
