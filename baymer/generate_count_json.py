@@ -26,29 +26,12 @@ import multiprocessing as mp
 import matplotlib.pyplot as plt
 from numba import njit, prange
 
-sys.path.append(os.path.join(os.path.dirname(sys.path[0]), 'modules'))
-sys.path.append(os.path.join(os.path.dirname(sys.path[0]), 'model_generation'))
-sys.path.append(os.path.join(os.path.dirname(sys.path[0]), 'collapse_model'))
-sys.path.append(os.path.join(os.path.dirname(sys.path[0]), 'compare_models'))
-
-import projection_functions
-import likelihood_ratio_test_class
-import count_utils
-import wrapper_full_mer_model as rate_dict_generator
-import fold_rate_dicts
-import exhaustive_mer_expansion
-import collapsing_algorithm_classes
-import general_utils
-import simulation_functions
-import bootstrap_functions
-import rate_comparisons
-
-
 def help(exit_num=1):
     print("""-----------------------------------------------------------------
 ARGUMENTS
-    -m => <csv> mutations csv REQUIRED
-    -c => <json> contexts csv REQUIRED
+    -c => <yaml> config file REQUIRED
+    --mc => <csv> mutations csv REQUIRED
+    --cc => <json> contexts csv REQUIRED
     -o => <dir> output dir REQUIRED
     -p => <str> pop REQUIRED
     -f => <str> feature REQUIRED
@@ -71,7 +54,7 @@ ASSUMPTIONS
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "m:c:o:p:f:d:", ["max-af=", "quality="])
+        opts, args = getopt.getopt(sys.argv[1:], "c:o:p:f:d:", ["max-af=", "quality=", "cc=", "mc="])
                                                               
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
@@ -81,9 +64,10 @@ def main(argv):
     
     ## Required arguments
     try:
+        config_file = options_dict['-c']
         output_dir = options_dict['-o']
-        mutation_count_file = options_dict['-m']
-        context_count_file = options_dict['-c']
+        mutation_count_file = options_dict['--mc']
+        context_count_file = options_dict['--cc']
         feature = options_dict['-f']
         pop = options_dict['-p']
         dataset = options_dict['-d']
@@ -98,7 +82,7 @@ def main(argv):
     
     print("Acceptable Inputs Given")
 
-    driver(mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af, quality)
+    driver(config_file, mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af, quality)
 
 
 ###############################################################################
@@ -109,12 +93,12 @@ def main(argv):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af, quality):
+def driver(config_file, mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af, quality):
     
-
-
+    config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
+    
     # prepare the master count dict from the context count file
-    context_count_dict = prepare_count_json_from_csv(context_count_file, dataset)
+    context_count_dict = prepare_count_json_from_csv(context_count_file, dataset, config_dict)
 
     # mutation count data
     mutation_count_df = pd.read_csv(mutation_count_file)
@@ -131,8 +115,8 @@ def driver(mutation_count_file, context_count_file, feature, pop, dataset, outpu
     print("variants counted from mutation file: ", total_muts)
     
     min_mer = 1
-    max_mer = 9
-
+    max_mer = len(list(context_count_dict.keys())[0])
+    
     count_dicts_dict = get_count_dicts_from_df(mutation_count_df, context_count_dict, min_mer, max_mer)
 
     ## Now save each of the count dicts 
@@ -158,11 +142,11 @@ def driver(mutation_count_file, context_count_file, feature, pop, dataset, outpu
         
     config.write('...')
 
-def prepare_count_json_from_csv(context_count_file, dataset):
+def prepare_count_json_from_csv(context_count_file, dataset, config_dict):
     
     # generate the dataframe column names
     names_list = ["Context"]    
-    for chrom in range(1, 23):
+    for chrom in config_dict["chromosomes"]:
         odd_chrom_name = str(chrom) + ".odd_bp"
         even_chrom_name = str(chrom) + ".even_bp"
 
@@ -175,8 +159,7 @@ def prepare_count_json_from_csv(context_count_file, dataset):
     gw_full_df = pd.read_csv(context_count_file, sep='\t')
     dataset_df = gw_full_df[["Context"]]
     dataset_df["Count"] = gw_full_df[names_list].sum(axis=1)
-
-    dataset_dict = dataset_df.set_index()["Count"]
+    dataset_dict = dict(zip(dataset_df["Context"], dataset_df["Count"]))
     
     return dataset_dict 
 
@@ -217,7 +200,7 @@ def get_count_dicts_from_df(df, raw_count_dict, min_mer, max_mer):
     total_count = 0
     n = 0
     print('max count dict generated')
-    count_dicts_dict = simulation_functions.extrapolate_context_counts_down_tree(max_count_dict, min_mer, max_mer)
+    count_dicts_dict = extrapolate_context_counts_down_tree(max_count_dict, min_mer, max_mer)
     return count_dicts_dict
 
 def tabulate_max_window_counts_from_df(df, raw_count_dict, context_ref_index):
@@ -227,47 +210,42 @@ def tabulate_max_window_counts_from_df(df, raw_count_dict, context_ref_index):
     mutation_index_dict = {"A": 0, "C": 1, "G": 2, "T": 3}
 
     grouped_df = df.groupby(['Context', 'Mutation']).size().reset_index(name='counts')
-    
+    print(context_ref_index)
     for idx, row in grouped_df.iterrows():
 
         context = row['Context']
+        total_contexts = raw_count_dict[context]
         try:
-            count_entry = max_count_dict[context]
-            ref_pos = count_entry[5]
+            ref_index = max_count_dict[context][5]
         except KeyError:
-            count_entry = [0, 0, 0, 0] + raw_count_dict[context] + [0, 0]
-
-            max_count_dict[context] = count_entry
             ref_index = mutation_index_dict[context[context_ref_index]]
-            count_entry[5] = ref_index
-            count_entry[6] = context_ref_index
-            count_count_entry[5] = count_entry[4]
-        
+            max_count_dict[context] = [0, 0, 0, 0, total_contexts, ref_index, context_ref_index]
+            max_count_dict[context][ref_index] = total_contexts 
         mutation = row['Mutation']
         count = row['counts']
 
         mutation_index = mutation_index_dict[mutation]
-        count_entry[mutation_index] = count
-        count_entry[ref_index] = count_entry[ref_index] - count
-    
-    add_missing_contexts(max_count_dict, raw_count_dict)
-    
+        max_count_dict[context][mutation_index] = count
+        max_count_dict[context][ref_index] -= count
+    add_missing_contexts(max_count_dict, raw_count_dict, context_ref_index)
     return max_count_dict
 
-def add_missing_contexts(max_count_dict, raw_count_dict):
+def add_missing_contexts(max_count_dict, raw_count_dict, context_ref_index):
     
-    missing_contexts = set(raw_count_dict.keys()) - set(max_count_dict.keys())
+    mutation_index_dict = {"A": 0, "C": 1, "G": 2, "T": 3}
+    
+    missing_contexts = set(raw_count_dict.keys()) - set(max_count_dict.keys())    
     print("number of missing contexts: ", len(missing_contexts))
     for context in missing_contexts:
-        count_entry = raw_count_dict[context]
-        total_contexts = count_entry[4]
-        empty_count_entry = [0, 0, 0, 0] + count_entry[4:]
+        total_contexts = raw_count_dict[context]
+        ref_index = mutation_index_dict[context[context_ref_index]]
+        empty_count_entry = [0, 0, 0, 0, total_contexts, ref_index, context_ref_index]
         #print(empty_count_entry)
         # set ref value to the total context count
-        empty_count_entry[count_entry[5]] = total_contexts
+        empty_count_entry[ref_index] = total_contexts
 
         max_count_dict[context] = empty_count_entry
-
+    
 
 def parse_histogram_bins(hist_bins_file):
     
@@ -281,6 +259,56 @@ def parse_histogram_bins(hist_bins_file):
     bin_list = list(hist_bins_df['breaks'])
 
     return (bin_dict, bin_list)
+
+def extrapolate_context_counts_down_tree(max_count_dict, min_mer = 3, max_mer = 9, oppo_asymmetric = False):
+    
+    counts_dict = {}
+    # set up counts dict
+    for mer_size in range(min_mer, max_mer + 1):
+        counts_dict[str(mer_size) + 'mer'] = {}
+    total_count = 0
+    n = 0
+    for context in max_count_dict:
+        context_list = max_count_dict[context]
+        nuc_in_scope = context_list[5]
+        
+        samp_size = context_list[4]
+        count_entry = context_list[:] 
+        counts_dict[str(max_mer) + 'mer'][context] = count_entry
+        # next extrapolate the counts down the tree
+        smaller_mer = context
+        temp_mer_size = max_mer - 1
+        temp_ref_context_index = int(context_list[6])
+        while temp_mer_size >= min_mer:
+            temp_mer_size_string = str(temp_mer_size) + 'mer'
+            
+            # if context is odd
+            if temp_mer_size % 2 == 1:
+                if not oppo_asymmetric:
+                    smaller_mer = smaller_mer[:-1]
+                else:
+                    smaller_mer = smaller_mer[1:]
+                    temp_ref_context_index -= 1
+            # if mer is even
+            else:
+                if not oppo_asymmetric:
+                    smaller_mer = smaller_mer[1:]
+                    temp_ref_context_index -= 1
+                else:
+                    smaller_mer = smaller_mer[:-1]
+            
+            try:
+                for pos in range(4):
+                    counts_dict[temp_mer_size_string][smaller_mer][pos] += count_entry[pos]
+                counts_dict[temp_mer_size_string][smaller_mer][4] += samp_size
+                    
+            except KeyError:
+                new_count_entry = count_entry[:]
+                new_count_entry[6] = temp_ref_context_index
+                counts_dict[temp_mer_size_string][smaller_mer] = new_count_entry
+            temp_mer_size -= 1 
+    
+    return counts_dict
 
 
 #######################################################################################################################################################
