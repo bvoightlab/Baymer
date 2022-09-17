@@ -64,7 +64,7 @@ def main(argv):
 
     ## Required arguments
     try:
-        fasta_config_file = options_dict['-c']
+        config_file = options_dict['-c']
         feature = options_dict['--feature']
         mer_length = options_dict['-m']
         context_output_file = options_dict['--co']
@@ -157,8 +157,8 @@ def driver(config_file, feature, mer_length, context_output_file, offset, buffer
             ## merge
             context_count_master_df = context_count_master_df.join(chrom_context_count_df, how='inner')
     
-    
-    context_count_master_df.to_csv(context_output_file, sep = '\t')
+    context_count_master_df["Context"] = context_count_master_df.index
+    context_count_master_df.to_csv(context_output_file, sep = '\t', index = False)
 
     print("Output file successfully saved")
 
