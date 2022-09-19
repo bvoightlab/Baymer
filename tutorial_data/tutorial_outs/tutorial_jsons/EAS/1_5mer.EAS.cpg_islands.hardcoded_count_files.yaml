@@ -1,0 +1,15 @@
+### yaml file holding count files for data.
+---
+EAS:
+  cpg_islands:
+    1mer:
+      ALL: tutorial_data/tutorial_outs/tutorial_jsons/EAS//1mer.ALL.EAS.cpg_islands.folded_count_dict.json
+    2mer:
+      ALL: tutorial_data/tutorial_outs/tutorial_jsons/EAS//2mer.ALL.EAS.cpg_islands.folded_count_dict.json
+    3mer:
+      ALL: tutorial_data/tutorial_outs/tutorial_jsons/EAS//3mer.ALL.EAS.cpg_islands.folded_count_dict.json
+    4mer:
+      ALL: tutorial_data/tutorial_outs/tutorial_jsons/EAS//4mer.ALL.EAS.cpg_islands.folded_count_dict.json
+    5mer:
+      ALL: tutorial_data/tutorial_outs/tutorial_jsons/EAS//5mer.ALL.EAS.cpg_islands.folded_count_dict.json
+...
