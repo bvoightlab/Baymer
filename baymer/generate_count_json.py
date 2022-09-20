@@ -93,7 +93,7 @@ def main(argv):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(config_file, mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af, quality):
+def driver(config_file, mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af=0.85, quality=False):
     
     config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
     
