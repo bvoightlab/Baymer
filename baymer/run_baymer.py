@@ -23,23 +23,18 @@ import json
 import time
 import numpy as np
 import random
+from itertools import product
 from numba import njit, prange, vectorize, float64
-
-sys.path.append(os.path.join(os.path.dirname(sys.path[0]), 'baymer'))
-import baymer_mcmc_functions as mcmc_functions
 
 def help(exit_num=1):
     print("""-----------------------------------------------------------------
 ARGUMENTS
-    -c => <yaml> config file REQUIRED
+    -c => <yaml> count json config file REQUIRED
     -p => <yaml> parameter values config file REQUIRED
     -o => <dir> output directory REQUIRED
     -r => <int> random seed to use OPTIONAL               
     -d => <data> data to use in config file OPTIONAL Default: EVEN
-    -s => <yaml> set start layer OPTIONAL Default: Start at layer 0
-    -z => <bool> initialize starting thetas to spike and indicator
-    --pop => <string> population override. Overrides the pop designation made in parameter config file OPTIONAL
-    -a => <bool> inverts the even symmetry (CG* rather than C*G) OPTIONAL Default: Standard
+    -z => <bool> initialize starting thetas to spike and indicator = 1
 """)
     sys.exit(exit_num)
 
@@ -55,7 +50,7 @@ BATCH = 50
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "c:o:p:r:d:s:za", ["pop="])
+        opts, args = getopt.getopt(sys.argv[1:], "c:o:p:r:d:z")
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
         help()
@@ -64,7 +59,7 @@ def main(argv):
 
     ## Required arguments
     try:
-        config_file = options_dict['-c']
+        data_config_file = options_dict['-c']
         param_config_file = options_dict['-p']
         output_dir = options_dict['-o']
         
@@ -75,21 +70,16 @@ def main(argv):
     # Optional arguments
     random_seed = options_dict.get('-r', False)
     dataset = options_dict.get('-d', 'EVEN')
-    set_start = options_dict.get('-s', False)
     zero_init = options_dict.get("-z", False)
-    pop_override = options_dict.get("--pop", False)
-    oppo_asymmetry = options_dict.get("-a", False)
     if zero_init == "":
         zero_init = True
-    if oppo_asymmetry == "":
-        oppo_asymmetry = True
     print("Acceptable Inputs Given")
     
     if random_seed:
         random.seed(int(random_seed))
         np.random.seed(int(random_seed))
     
-    driver(config_file, param_config_file, output_dir, random_seed, dataset, set_start, zero_init, pop_override, oppo_asymmetry)
+    driver(data_config_file, param_config_file, output_dir, random_seed, dataset, zero_init)
 
 
 ###############################################################################
@@ -100,13 +90,13 @@ def main(argv):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(config_file, param_config_file, output_dir, random_seed, dataset, set_start, zero_init, pop_override, oppo_asymmetry):
+def driver(data_config_file, param_config_file, output_dir, random_seed, dataset,  zero_init = False, set_start = False, pop_override = False, oppo_asymmetry = False):
     
     suppress = True
     #suppress = False
     
     # load config files that specify model parameters and file locations 
-    config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
+    config_dict = yaml.load(open(data_config_file, 'r'), Loader=yaml.SafeLoader)
     param_config_dict = yaml.load(open(param_config_file, 'r'), Loader=yaml.SafeLoader)
 
     ## init hyperparameters from config
@@ -200,7 +190,7 @@ def driver(config_file, param_config_file, output_dir, random_seed, dataset, set
             sample_order = np.random.choice(post_thin_samples, num_iterations)
             first_sample = sample_order[0]
         # get the arrays for each edge in this layer
-        theta_array, p_vec_array, indicator_array, context_list, leaf_counts_array, theta_probabilities_array, alpha_probabilities_array = mcmc_functions.initialize_layer_tree_edge_list(layer, layer_size, max_mer, context_list, p_vec_array, sigmas, alpha_probs, set_p_vec_sample_array, leaf_count_dict, first_sample, random_seed, continue_chain_dict, zero_init, oppo_asymmetry)
+        theta_array, p_vec_array, indicator_array, context_list, leaf_counts_array, theta_probabilities_array, alpha_probabilities_array = initialize_layer_tree_edge_list(layer, layer_size, max_mer, context_list, p_vec_array, sigmas, alpha_probs, set_p_vec_sample_array, leaf_count_dict, first_sample, random_seed, zero_init, oppo_asymmetry)
         print("layer arrays initialized")
 
         leaf_likelihood_array = get_leaf_likelihood_array(layer_size, leaf_counts_array, p_vec_array) 
@@ -392,7 +382,8 @@ def driver(config_file, param_config_file, output_dir, random_seed, dataset, set
         with open("{}/index_dict.layer_{}.json".format(output_dir, layer), 'w') as jFile:
             json.dump(index_dict, jFile)
         
-        write_layer_report(output_dir, layer, dataset, pop, feature, random_seed, num_iterations, burnin, accepted_tuple, timing_tuple, starting_hyperparameters, thinning_interval, post_thin_samples, set_sigma, zero_init)
+        accepted_tuple = (sigma_accepted_array[0] / num_iterations, alpha_accepted_array[0] / num_iterations, theta_accepted_array[0] / (layer_size * 3 * num_iterations))
+        write_layer_report(output_dir, layer, dataset, pop, feature, random_seed, num_iterations, burnin, accepted_tuple, starting_hyperparameters, thinning_interval, post_thin_samples, set_sigma, zero_init)
         
 
 @njit()
@@ -866,7 +857,201 @@ def get_context_list(set_start_dict):
 
     return context_list
 
-def write_layer_report(output_dir, layer, dataset, pop, feature, random_seed, num_iterations, burnin, accepted_tuple, timing_tuple, starting_hyperparameters, thinning_interval, post_thin_samples, set_sigma, zero_init):
+def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list, old_p_vec_array, sigmas, alpha_probs, set_p_vec_sample_array, leaf_count_dict, first_sample, random_seed, zero_init, oppo_asymmetry = False):
+    
+    if random_seed:
+        np.random.seed(int(random_seed))
+        random.seed(int(random_seed))
+    ## Init all the returned arrays
+    theta_array = np.zeros((layer_size, 3), dtype=np.float32)
+    theta_probabilities_array = np.zeros((layer_size, 3))
+    p_vec_array = np.ones((layer_size, 3), dtype=np.float32)
+    indicator_array = np.zeros((layer_size, 3), dtype=np.int32)
+    alpha_probabilities_array = np.zeros((layer_size, 3))
+    context_list = [None for x in range(layer_size)]
+    leaf_count_components = 4**(int(max_mer) - int(layer))
+    leaf_count_array = np.ones((layer_size, leaf_count_components))
+    
+    spike_sigma, slab_sigma = sigmas
+    spike_alpha_prob, slab_alpha_prob = alpha_probs 
+
+    # check if this is the first layer
+    if layer == 0:
+        context_list = np.array(['A', 'C'])
+        array_index = -1
+        for context in context_list:
+            array_index += 1
+            init_theta = np.random.uniform(low = 0.0, high = 0.02, size = 3)
+            init_p_vec = init_theta
+                
+            theta_array[array_index] = init_theta
+            p_vec_array[array_index] = init_p_vec
+            
+            # get leaf_counts
+            leaf_contexts = get_leaf_contexts(context, max_mer, oppo_asymmetry)
+            leaf_counts = None
+            if context == 'C':
+                leaf_counts = get_adjusted_leaf_counts(leaf_contexts, leaf_count_dict).astype(np.int32)
+            else:
+                leaf_counts = np.array([np.array(leaf_count_dict[x][0:4]) for x in leaf_contexts]).flatten().astype(np.int32)
+            
+            leaf_count_array[array_index] = leaf_counts
+            
+    else:
+        context_size = layer
+        odd_bool = context_size % 2
+        parent_index = -1
+        for parent_context in old_context_list:
+            C_bool = True
+            
+            central_nuc_index = int(context_size/2)
+            if not odd_bool and not oppo_asymmetry:
+                central_nuc_index = central_nuc_index - 1
+                
+            central_nuc = parent_context[central_nuc_index]
+            if central_nuc == 'C':
+                C_bool = True
+            elif central_nuc == 'A':
+                C_bool = False
+            else:
+                print("Error: non A or C central nuc")
+                sys.exit()
+            parent_index += 1
+            index_mod = 0
+            for nuc in ['A', 'C', 'G', 'T']:
+                array_index = index_mod + (parent_index * 4)
+                
+                
+                child_context = nuc + parent_context
+                if (not oppo_asymmetry and odd_bool) or (oppo_asymmetry and not odd_bool):
+                    child_context = parent_context + nuc
+                    
+                context_list[array_index] = child_context
+                
+                # Init theta
+                init_theta = np.array([0, 0, 0])
+                init_p_vec = 0
+                init_indicator = np.array([0, 0, 0])
+                
+    
+                parent_p_vec = set_p_vec_sample_array[array_index, first_sample, :]
+                success = False
+                while not success:
+                    if not zero_init:
+                        init_theta = np.random.uniform(low = -0.7, high = 0.7, size = 3)
+                    init_p_vec = parent_p_vec * np.exp(init_theta)
+                    # make sure this p_vec is valid
+                    if np.sum(init_p_vec) < 1 and min(init_p_vec) > 0:
+                        success = True 
+                
+                theta_array[array_index] = init_theta
+                p_vec_array[array_index] = init_p_vec
+                
+                # Init indicator
+                if not zero_init:
+                    init_indicator = np.random.randint(2, size = 3)
+                    indicator_array[array_index] = init_indicator
+
+                # Init sigma array, theta probabilities, alpha probabilities
+                count = 0
+                for j in init_indicator:
+                    sigma = slab_sigma
+                    alpha_prob = slab_alpha_prob
+                    if j == 0:
+                        sigma = spike_sigma
+                        alpha_prob = spike_alpha_prob
+                    sub_theta_probability = -np.log(sigma) - ((init_theta[count]/sigma)**2)/2.0
+                    
+                    theta_probabilities_array[array_index][count] = sub_theta_probability
+                    alpha_probabilities_array[array_index][count] = alpha_prob
+                    count += 1
+                # get leaf_counts
+                leaf_contexts = get_leaf_contexts(child_context, max_mer, oppo_asymmetry)
+                leaf_counts = []
+                if C_bool:
+                    leaf_counts = get_adjusted_leaf_counts(leaf_contexts, leaf_count_dict).astype(np.int32)
+                else:
+                    leaf_counts = np.array([np.array(leaf_count_dict[x][0:4]) for x in leaf_contexts]).flatten().astype(np.int32)
+                
+                leaf_count_array[array_index] = leaf_counts
+
+                index_mod += 1
+
+    return theta_array, p_vec_array, indicator_array, context_list, leaf_count_array, theta_probabilities_array, alpha_probabilities_array
+
+
+def get_adjusted_leaf_counts(leaf_contexts, leaf_count_dict):
+
+    leaf_counts = np.zeros(len(leaf_contexts) * 4)
+    context_count = 0
+    for context in leaf_contexts:
+        counts = leaf_count_dict[context]
+        new_counts = np.array([counts[1], counts[0], counts[2], counts[3]])
+        leaf_counts[context_count*4:context_count*4 + 4] = new_counts
+        context_count += 1
+    
+    return leaf_counts
+
+def get_leaf_contexts(context, max_mer, oppo_asymmetry):
+    leaf_contexts = []
+    context_length = len(context)
+    
+    odd_max_bool = max_mer % 2
+
+    nucleotides_to_add = int(max_mer - context_length)
+    odd_bool = 0
+    if odd_max_bool and nucleotides_to_add % 2 and not oppo_asymmetry:
+        odd_bool = 1
+    elif not odd_max_bool and nucleotides_to_add % 2 and oppo_asymmetry:
+        odd_bool = 1
+    left_flank_length = int(nucleotides_to_add / 2) + odd_bool
+    
+    for combination in product('ACGT', repeat=nucleotides_to_add):
+        bases = ''.join(combination)
+        if left_flank_length == 0:
+            leaf_context = context + bases
+        else:
+            leaf_context = bases[0:left_flank_length] + context + bases[left_flank_length:]
+        leaf_contexts.append(leaf_context)
+        
+    return leaf_contexts
+
+
+def get_final_nodes(repped_nodes, total_nodes):
+    
+
+    final_leaf_nodes = []
+    layer_nodes = repped_nodes[:]
+    
+    stop_bool = False
+    while not stop_bool:
+        
+        new_layer_nodes = []
+        for node in layer_nodes:
+            node_children = [4 * int(node) + mod for mod in range(1,5)]
+            if node_children[0] >= total_nodes:
+                # max level reached
+                final_leaf_nodes.append(node)
+            else:
+                new_layer_nodes = new_layer_nodes + node_children
+        if len(new_layer_nodes) == 0:
+            stop_bool = True
+        else:
+            layer_nodes = new_layer_nodes[:]
+
+    return final_leaf_nodes
+
+
+def find_siblings(node_index):
+    
+    node_age = node_index - ((node_index - 1) % 4) -1 
+
+    all_siblings = [node_age + sibling_mod for sibling_mod in range(1,5)]
+    all_siblings.remove(node_index)
+
+    return all_siblings
+
+def write_layer_report(output_dir, layer, dataset, pop, feature, random_seed, num_iterations, burnin, accepted_tuple, starting_hyperparameters, thinning_interval, post_thin_samples, set_sigma, zero_init):
     
     output_file = output_dir + "/{}_layer_{}_report.{}.{}.rs{}.txt".format(dataset, layer, pop, feature, random_seed)
 
@@ -878,7 +1063,7 @@ def write_layer_report(output_dir, layer, dataset, pop, feature, random_seed, nu
         out.write("Fraction sub thetas accepted: {}\nFraction sigmas accepted: {}\nFraction alphas accepted: {}\n".format(accepted_tuple[2], accepted_tuple[0], accepted_tuple[1]))
         out.write("--------------\n")
         out.write("Set starting conditions\nc: {}\nset_sigma: {}\nslab sigma: {}\nalpha: {}\n".format(starting_hyperparameters[2], set_sigma, starting_hyperparameters[3],starting_hyperparameters[4]))
-        out.write("Timings\nAverage time per iteration: {}\nAvg init set edges time: {}\nAvg indicator sampling time: {}\nAvg theta sampling time: {}\nAvg alpha sampling time: {}\nAvg sigma sampling time: {}\n".format(timing_tuple[0], timing_tuple[1], timing_tuple[2], timing_tuple[3], timing_tuple[4], timing_tuple[5]))
+        #out.write("Timings\nAverage time per iteration: {}\nAvg init set edges time: {}\nAvg indicator sampling time: {}\nAvg theta sampling time: {}\nAvg alpha sampling time: {}\nAvg sigma sampling time: {}\n".format(timing_tuple[0], timing_tuple[1], timing_tuple[2], timing_tuple[3], timing_tuple[4], timing_tuple[5]))
         out.write("--------------")
 
 
