@@ -31,10 +31,8 @@ def help(exit_num=1):
 ARGUMENTS
     -c => <yaml> count json config file REQUIRED
     -p => <yaml> parameter values config file REQUIRED
-    -o => <dir> output directory REQUIRED
-    -r => <int> random seed to use OPTIONAL               
-    -d => <data> data to use in config file OPTIONAL Default: EVEN
-    -z => <bool> initialize starting thetas to spike and indicator = 1
+    -r => <int> Index of random seed in parameter yaml OPTIONAL Default: 0           
+    -z => <bool> initialize starting thetas to spike and indicator = 1 OPTIONAL
 """)
     sys.exit(exit_num)
 
@@ -50,7 +48,7 @@ BATCH = 50
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "c:o:p:r:d:z")
+        opts, args = getopt.getopt(sys.argv[1:], "c:p:r:z")
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
         help()
@@ -61,25 +59,19 @@ def main(argv):
     try:
         data_config_file = options_dict['-c']
         param_config_file = options_dict['-p']
-        output_dir = options_dict['-o']
         
     except KeyError:
         print("Error: One of your required arguments does not exist.")
         help()
 
     # Optional arguments
-    random_seed = options_dict.get('-r', False)
-    dataset = options_dict.get('-d', 'EVEN')
+    random_seed_index = int(options_dict.get('-r', 0))
     zero_init = options_dict.get("-z", False)
     if zero_init == "":
         zero_init = True
     print("Acceptable Inputs Given")
     
-    if random_seed:
-        random.seed(int(random_seed))
-        np.random.seed(int(random_seed))
-    
-    driver(data_config_file, param_config_file, output_dir, random_seed, dataset, zero_init)
+    driver(data_config_file, param_config_file, random_seed_index, zero_init)
 
 
 ###############################################################################
@@ -90,7 +82,7 @@ def main(argv):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(data_config_file, param_config_file, output_dir, random_seed, dataset,  zero_init = False, set_start = False, pop_override = False, oppo_asymmetry = False):
+def driver(data_config_file, param_config_file, random_seed_index,  zero_init = False, set_start = False, pop_override = False, oppo_asymmetry = False):
     
     suppress = True
     #suppress = False
@@ -99,9 +91,16 @@ def driver(data_config_file, param_config_file, output_dir, random_seed, dataset
     config_dict = yaml.load(open(data_config_file, 'r'), Loader=yaml.SafeLoader)
     param_config_dict = yaml.load(open(param_config_file, 'r'), Loader=yaml.SafeLoader)
 
+    # set random seeds
+    random_seed = param_config_dict["random_seeds"][random_seed_index]
+    random.seed(int(random_seed))
+    np.random.seed(int(random_seed))
+
     ## init hyperparameters from config
     c = param_config_dict['c']
     max_mer = param_config_dict['max_mer']
+    output_dir = param_config_dict["posterior_dir"]
+    dataset = param_config_dict["dataset"]
     pop = param_config_dict['pop']
     if pop_override:
         pop = pop_override
