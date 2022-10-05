@@ -19,21 +19,19 @@ import os
 import yaml
 import json
 from scipy.stats import norm
-import matplotlib as mpl
-import mpl.pyplot as plt
-from mpl import colors
-from mpl import collections as mc
-mpl.rcParams['agg.path.chunksize'] = 10000
-from mpl import rcParams
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib import colors
+from matplotlib import collections as mc
+matplotlib.rcParams['agg.path.chunksize'] = 10000
+from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
-import general_utils
 
 
 def help(exit_num=1):
     print("""-----------------------------------------------------------------
 ARGUMENTS
     -c => <yaml> config file REQUIRED
-    -o => <dir> output directory REQUIRED
     -t => <boolean> plot theta plots OPTIONAL
 """)
     sys.exit(exit_num)
@@ -48,7 +46,7 @@ ARGUMENTS
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "c:o:t")
+        opts, args = getopt.getopt(sys.argv[1:], "c:t")
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
         help()
@@ -58,7 +56,6 @@ def main(argv):
     ## Required arguments
     try:
         config_file = options_dict['-c']
-        output_dir = options_dict['-o']
 
     except KeyError:
         print("Error: One of your required arguments does not exist.")
@@ -73,7 +70,7 @@ def main(argv):
     
     
 
-    driver(config_file, output_dir, skip_thetas)
+    driver(config_file, skip_thetas)
 
 
 ###############################################################################
@@ -84,17 +81,16 @@ def main(argv):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(config_file, output_dir, plot_thetas):
+def driver(config_file, plot_thetas = False):
 
     config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
     
     #train_data_list = ['EVEN', 'ODD']
     # gather overall info from config dict
-    max_layer = config_dict['max_layer']
+    max_layer = config_dict['max_mer'] - 1
     pop = config_dict['pop']
     feature = config_dict['feature']
     posterior_dir = config_dict['posterior_dir']
-    true_values_dict = config_dict['true_p']
     random_seeds = config_dict['random_seeds']
     dataset = config_dict['dataset']
     c = config_dict['c']
@@ -105,7 +101,7 @@ def driver(config_file, output_dir, plot_thetas):
         # gather layer data
         index_dict = posterior_dir + "index_dict.layer_" + str(layer) + ".json"
 
-        index_context_dict = general_utils.open_json_dict(index_dict)
+        index_context_dict = open_json_dict(index_dict)
         num_iterations = config_dict[layer]["num_iterations"]
         
         burnin = config_dict[layer]["burnin"]
@@ -356,7 +352,7 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
                 previous_context_length = context_length
             if not open_dict:
                 count_ground_truth_dict_file = true_values_dict[str(context_length) + 'mer']['context_counts']
-                count_ground_truth_dict = general_utils.open_json_dict(count_ground_truth_dict_file)
+                count_ground_truth_dict = open_json_dict(count_ground_truth_dict_file)
 
             theta_index = 0
             for context_base in mut_indices:
@@ -471,6 +467,7 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
         
         file_name = "{}/theta_{}_posterior_plots.png".format(output_dir, context_string)
         plt.savefig(file_name)
+        
         plt.close(fig)
 
 
@@ -665,7 +662,14 @@ def plot_indicator_distribution(chain_lists, ind_data_list, output_dir, index_co
     file_name = "{}/indicator_posterior_plots.png".format(output_dir)
     plt.savefig(file_name)
     plt.close(fig)
-  
+
+def open_json_dict(f):
+
+    with open(f, 'r') as jFile:
+        d = json.load(jFile)
+
+    return d
+
 #######################################################################################################################################################
 #cProfile.run('main(sys.argv[1:])')
          
