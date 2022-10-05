@@ -4,7 +4,7 @@ pop: "AFR"
 feature: "cpg_islands"
 c: 0.04472136
 set_sigma: 0.8540486
-posterior_dir: "tutorial_data/tutorial_baymer_out/AFR/"
+posterior_dir: "tutorial_data/tutorial_outs/tutorial_baymer_out/AFR/"
 random_seeds:
   - 14
   - 18
