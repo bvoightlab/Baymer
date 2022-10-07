@@ -6,7 +6,7 @@
 ###############################################################################
 ###
 ### This script will run the metropolis hastings mcmc where multiplications
-### are made down the tree. All parameters are estimately jointly and thetas
+### are made down the tree. All parameters are estimately jointly and phis
 ### come from a mixture of normals and are sampled in log space. 
 ###
 ###############################################################################
@@ -32,7 +32,7 @@ ARGUMENTS
     -c => <yaml> count json config file REQUIRED
     -p => <yaml> parameter values config file REQUIRED
     -r => <int> Index of random seed in parameter yaml OPTIONAL Default: 0           
-    -z => <bool> initialize starting thetas to spike and indicator = 1 OPTIONAL
+    -z => <bool> initialize starting phis to spike and indicator = 1 OPTIONAL
 """)
     sys.exit(exit_num)
 
@@ -111,7 +111,7 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
     leaf_count_dict = prep_leaf_count_dict(config_dict, pop, feature, max_mer, dataset)
     
     # init the context array
-    context_list = ['theta_naught']
+    context_list = ['phi_naught']
     # init the p_vec array
     p_vec_array = None
     old_set_probabilities_array = np.zeros(num_iterations)
@@ -129,7 +129,7 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
         set_start = int(set_start)
         data_layer = set_start
         likelihood_file = "{}/{}_{}_{}_rs{}_posterior_matrix.full_trace.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, set_start)
-        thetas_file = "{}/{}_{}_{}_rs{}_thetas.burned_in.thinned.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, set_start)
+        phis_file = "{}/{}_{}_{}_rs{}_phis.burned_in.thinned.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, set_start)
         rate_matrix_file = "{}/{}_{}_{}_rs{}_rate_matrix.burned_in.thinned.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, set_start)
         index_file = "{}/index_dict.layer_{}.json".format(output_dir, set_start)     
         #set_start_dict = yaml.load(open(set_start_yaml, 'r'), Loader=yaml.SafeLoader)
@@ -138,7 +138,7 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
                           "burnin": burnin,
                           "num_iterations": num_iterations,
                           "thinning_parameter": param_config_dict[set_start]["thinning_parameter"],
-                          "theta_sample_matrix": thetas_file,
+                          "phi_sample_matrix": phis_file,
                           "rate_matrix": rate_matrix_file,
                           "likelihood_matrix": likelihood_file,
                           "index_dict": index_file}
@@ -153,7 +153,7 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
 
         # collect proposal sigmas
         sigma_sigma = np.float32(param_config_dict[layer]['proposal_sigmas']['sigma_sigma'])
-        proposal_sigma = np.float32(param_config_dict[layer]['proposal_sigmas']['theta_sigma'])
+        proposal_sigma = np.float32(param_config_dict[layer]['proposal_sigmas']['phi_sigma'])
         slab_sigma = np.float32(param_config_dict[layer]['slab_sigma'])
 
         indicator_sampling = "gibbs"
@@ -189,7 +189,7 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
             sample_order = np.random.choice(post_thin_samples, num_iterations)
             first_sample = sample_order[0]
         # get the arrays for each edge in this layer
-        theta_array, p_vec_array, indicator_array, context_list, leaf_counts_array, theta_probabilities_array, alpha_probabilities_array = initialize_layer_tree_edge_list(layer, layer_size, max_mer, context_list, p_vec_array, sigmas, alpha_probs, set_p_vec_sample_array, leaf_count_dict, first_sample, random_seed, zero_init, oppo_asymmetry)
+        phi_array, p_vec_array, indicator_array, context_list, leaf_counts_array, phi_probabilities_array, alpha_probabilities_array = initialize_layer_tree_edge_list(layer, layer_size, max_mer, context_list, p_vec_array, sigmas, alpha_probs, set_p_vec_sample_array, leaf_count_dict, first_sample, random_seed, zero_init, oppo_asymmetry)
         print("layer arrays initialized")
 
         leaf_likelihood_array = get_leaf_likelihood_array(layer_size, leaf_counts_array, p_vec_array) 
@@ -203,40 +203,40 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
 
 
         likelihood_matrix = np.zeros((num_iterations + 1, 5))
-        theta_sample_matrix = np.ones((total_samples, layer_size, 3), dtype = np.float32)
+        phi_sample_matrix = np.ones((total_samples, layer_size, 3), dtype = np.float32)
         rate_matrix = np.zeros((total_samples, layer_size, 3), dtype = np.float32)
         indicator_sample_matrix = np.zeros((total_samples, layer_size, 3), dtype = np.int32)
         alpha_sample_matrix = np.zeros(total_samples, dtype = np.float32)
         alpha_probability_sample_matrix = np.zeros((total_batches, layer_size * 3), dtype = np.float32)
-        theta_sigma_sample_matrix = np.zeros((total_batches, layer_size * 3), dtype = np.float32)
-        theta_alpha_sample_matrix = np.zeros((total_batches, layer_size * 3), dtype = np.float32)
-        theta_acceptance_batch_array = np.zeros((total_batches, layer_size * 3), dtype = np.float32)
+        phi_sigma_sample_matrix = np.zeros((total_batches, layer_size * 3), dtype = np.float32)
+        phi_alpha_sample_matrix = np.zeros((total_batches, layer_size * 3), dtype = np.float32)
+        phi_acceptance_batch_array = np.zeros((total_batches, layer_size * 3), dtype = np.float32)
   
-        theta_sigma_array = np.full(layer_size * 3, proposal_sigma, dtype = np.float32)
+        phi_sigma_array = np.full(layer_size * 3, proposal_sigma, dtype = np.float32)
         
-        theta_batch_array = np.zeros(layer_size * 3, dtype = np.float32)
+        phi_batch_array = np.zeros(layer_size * 3, dtype = np.float32)
         
         sigma_batch_array = np.array([0.0])
-        theta_sampling_alpha_array = np.full(layer_size * 3, 0.5, dtype = np.float32)
-        theta_indicator_count_array = np.zeros(layer_size * 3, dtype = np.int32)
+        phi_sampling_alpha_array = np.full(layer_size * 3, 0.5, dtype = np.float32)
+        phi_indicator_count_array = np.zeros(layer_size * 3, dtype = np.int32)
         sigma_sample_matrix = None
         if not set_sigma:
             sigma_sample_matrix = np.zeros(total_samples, dtype = np.float32)
         set_probabilities_array = np.zeros(total_samples)
         
         # calculate the probabilities/likelihoods for each parameter
-        total_theta_probability = np.sum(theta_probabilities_array)
+        total_phi_probability = np.sum(phi_probabilities_array)
         total_alpha_probability = np.sum(alpha_probabilities_array)
         total_leaf_likelihood = np.sum(leaf_likelihood_array)
-        total_posterior = total_theta_probability + total_alpha_probability + set_probability + total_leaf_likelihood
+        total_posterior = total_phi_probability + total_alpha_probability + set_probability + total_leaf_likelihood
         
-        print("Total posterior from theta: ", total_theta_probability)
+        print("Total posterior from phi: ", total_phi_probability)
         print("Total posterior from alpha: ", total_alpha_probability)
         print("Total posterior from likelihood: ", total_leaf_likelihood)
         print("Total posterior from set probability: ", set_probability)
         print("JOINT POSTERIOR: ", total_posterior)
         
-        likelihood_matrix[0] = [total_theta_probability, total_alpha_probability, total_leaf_likelihood, set_probability, total_posterior]
+        likelihood_matrix[0] = [total_phi_probability, total_alpha_probability, total_leaf_likelihood, set_probability, total_posterior]
         
         iteration = 0
         
@@ -249,7 +249,7 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
 
         sigma_accepted_array = np.array([0])
         alpha_accepted_array = np.array([0])
-        theta_accepted_array = np.array([0])
+        phi_accepted_array = np.array([0])
         
         thinned_iteration = 0
         post_burnin = False
@@ -265,8 +265,8 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
                         adaptive_winddown = True
                         ## set the proposal parameters based on the average of the previous 500
                         batch = int(iteration / BATCH)
-                        theta_sigma_array = np.mean(theta_sigma_sample_matrix[batch-500:batch, :], axis = 0)
-                        theta_sampling_alpha_array = np.mean(theta_alpha_sample_matrix[batch-500:batch, :], axis = 0)
+                        phi_sigma_array = np.mean(phi_sigma_sample_matrix[batch-500:batch, :], axis = 0)
+                        phi_sampling_alpha_array = np.mean(phi_alpha_sample_matrix[batch-500:batch, :], axis = 0)
                 elif iteration > burnin:
                     post_burnin = True
             
@@ -289,60 +289,60 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
                 #### Using the current sample, initialize the state of the layers of the tree already estimated
                 set_probability = old_set_probabilities_array[current_sample]
                 set_p_vec_array = set_p_vec_sample_array[:, current_sample, :] 
-                p_vec_array, leaf_likelihood_array = init_set_edges(set_p_vec_array, theta_array, leaf_counts_array, layer_size, suppress) 
+                p_vec_array, leaf_likelihood_array = init_set_edges(set_p_vec_array, phi_array, leaf_counts_array, layer_size, suppress) 
                 
                 # sample a new tree status
                 #### Sample a new value for every edge's indicator vector
                 alpha_probs = (np.log(1-alpha), np.log(alpha))
-                sample_new_indicator_gibbs(layer_size, alpha, alpha_probs, alpha_probabilities_array, indicator_array, theta_indicator_count_array, sigmas, theta_array, theta_probabilities_array, suppress)
+                sample_new_indicator_gibbs(layer_size, alpha, alpha_probs, alpha_probabilities_array, indicator_array, phi_indicator_count_array, sigmas, phi_array, phi_probabilities_array, suppress)
             
-                #### Sample a new value of theta for every edge in this layer
-                sample_new_thetas_decoupled(layer, layer_size, total_leaves, theta_array, set_p_vec_array, p_vec_array, theta_probabilities_array, indicator_array, sigmas, theta_sigma_array, c, alpha, theta_batch_array, theta_sampling_alpha_array, theta_indicator_count_array, leaf_likelihood_array, leaf_counts_array, theta_accepted_array, post_burnin, adaptive_winddown, batch, suppress)
+                #### Sample a new value of phi for every edge in this layer
+                sample_new_phis_decoupled(layer, layer_size, total_leaves, phi_array, set_p_vec_array, p_vec_array, phi_probabilities_array, indicator_array, sigmas, phi_sigma_array, c, alpha, phi_batch_array, phi_sampling_alpha_array, phi_indicator_count_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, suppress)
 
                 #### Sample a new value of alpha for this layer
                 alpha = sample_new_alphas_beta(layer_size, alpha, alpha_probabilities_array, indicator_array, alpha_accepted_array, suppress)
  
                 #### Sample a new value of sigma for this layer
                 if not set_sigma:
-                    sigmas, theta_probabilities_array, sigma_sigma = sample_new_sigmas(layer_size, sigma_sigma, sigma_batch_array, c, sigmas, indicator_array, theta_array, theta_probabilities_array, sigma_accepted_array, post_burnin, adaptive_winddown, batch, suppress)
+                    sigmas, phi_probabilities_array, sigma_sigma = sample_new_sigmas(layer_size, sigma_sigma, sigma_batch_array, c, sigmas, indicator_array, phi_array, phi_probabilities_array, sigma_accepted_array, post_burnin, adaptive_winddown, batch, suppress)
                 
             
             elif layer == 0:
                 
-                #### Sample a new value of theta for every edge in this layer
-                sample_new_thetas_decoupled_theta_naught(layer, layer_size, total_leaves, theta_array, p_vec_array, theta_sigma_array, theta_batch_array, leaf_likelihood_array, leaf_counts_array, theta_accepted_array, post_burnin, adaptive_winddown, batch, suppress)
+                #### Sample a new value of phi for every edge in this layer
+                sample_new_phis_decoupled_phi_naught(layer, layer_size, total_leaves, phi_array, p_vec_array, phi_sigma_array, phi_batch_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, suppress)
 
             # reset the batch
             if batch:
-                theta_sigma_sample_matrix[batch-1] = np.copy(theta_sigma_array)
-                theta_alpha_sample_matrix[batch-1] = np.copy(theta_sampling_alpha_array)
-                theta_acceptance_batch_array[batch-1] = np.copy(theta_batch_array)
+                phi_sigma_sample_matrix[batch-1] = np.copy(phi_sigma_array)
+                phi_alpha_sample_matrix[batch-1] = np.copy(phi_sampling_alpha_array)
+                phi_acceptance_batch_array[batch-1] = np.copy(phi_batch_array)
                 alpha_probability_sample_matrix[batch - 1] = np.copy(alpha_probabilities_array).flatten()
                 batch = False
-                theta_batch_array = np.zeros(layer_size * 3, dtype = np.float32)
+                phi_batch_array = np.zeros(layer_size * 3, dtype = np.float32)
                 sigma_batch_array = np.array([0.0])
 
             ## set the new values for each matrix if it corresponds to one of the thinned samples
             if post_burnin and iteration % thinning_interval == 0:
-                theta_sample_matrix[thinned_iteration] = np.copy(theta_array)
+                phi_sample_matrix[thinned_iteration] = np.copy(phi_array)
                 rate_matrix[thinned_iteration] = np.copy(p_vec_array)
                 indicator_sample_matrix[thinned_iteration] = np.copy(indicator_array)
                 alpha_sample_matrix[thinned_iteration] = alpha
                 if not set_sigma:
                     sigma_sample_matrix[thinned_iteration] = sigmas[1]
-                set_probabilities_array[thinned_iteration] = set_probability + np.sum(theta_probabilities_array) + np.sum(alpha_probabilities_array)
+                set_probabilities_array[thinned_iteration] = set_probability + np.sum(phi_probabilities_array) + np.sum(alpha_probabilities_array)
                 thinned_iteration += 1
             
             # calculate the probabilities/likelihoods for each parameter
-            total_theta_probability = np.sum(theta_probabilities_array)
+            total_phi_probability = np.sum(phi_probabilities_array)
             total_alpha_probability = np.sum(alpha_probabilities_array)
             total_leaf_likelihood = np.sum(leaf_likelihood_array)
-            total_posterior = total_theta_probability + total_alpha_probability + set_probability + total_leaf_likelihood
+            total_posterior = total_phi_probability + total_alpha_probability + set_probability + total_leaf_likelihood
             
-            likelihood_matrix[iteration] = [total_theta_probability, total_alpha_probability, total_leaf_likelihood, set_probability, total_posterior]
+            likelihood_matrix[iteration] = [total_phi_probability, total_alpha_probability, total_leaf_likelihood, set_probability, total_posterior]
             
             if not suppress:
-                print("Total posterior from theta: ", total_theta_probability)
+                print("Total posterior from phi: ", total_phi_probability)
                 print("Total posterior from alpha: ", total_alpha_probability)
                 print("Total posterior from likelihood: ", total_leaf_likelihood)
                 print("Total posterior from set probability: ", set_probability)
@@ -353,13 +353,13 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
 
         likelihood_file = "{}/{}_{}_{}_rs{}_posterior_matrix.full_trace.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, layer)
         alpha_file = "{}/{}_{}_{}_rs{}_alphas.burned_in.thinned.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, layer)
-        thetas_file = "{}/{}_{}_{}_rs{}_thetas.burned_in.thinned.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, layer)
+        phis_file = "{}/{}_{}_{}_rs{}_phis.burned_in.thinned.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, layer)
         indicator_file = "{}/{}_{}_{}_rs{}_indicator.burned_in.thinned.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, layer)
         rate_matrix_file = "{}/{}_{}_{}_rs{}_rate_matrix.burned_in.thinned.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, layer)
        
         np.save(likelihood_file, likelihood_matrix)
         np.save(alpha_file, alpha_sample_matrix)
-        np.save(thetas_file, theta_sample_matrix)
+        np.save(phis_file, phi_sample_matrix)
         np.save(indicator_file, indicator_sample_matrix)
         np.save(rate_matrix_file, rate_matrix)
         if not set_sigma:
@@ -381,15 +381,15 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
         with open("{}/index_dict.layer_{}.json".format(output_dir, layer), 'w') as jFile:
             json.dump(index_dict, jFile)
         
-        accepted_tuple = (sigma_accepted_array[0] / num_iterations, alpha_accepted_array[0] / num_iterations, theta_accepted_array[0] / (layer_size * 3 * num_iterations))
+        accepted_tuple = (sigma_accepted_array[0] / num_iterations, alpha_accepted_array[0] / num_iterations, phi_accepted_array[0] / (layer_size * 3 * num_iterations))
         write_layer_report(output_dir, layer, dataset, pop, feature, random_seed, num_iterations, burnin, accepted_tuple, starting_hyperparameters, thinning_interval, post_thin_samples, set_sigma, zero_init)
         
 
 @njit()
-def init_set_edges(set_p_vec_array, theta_array, leaf_counts_array, layer_size, suppress): 
+def init_set_edges(set_p_vec_array, phi_array, leaf_counts_array, layer_size, suppress): 
     
     # first get the new p_vec_array
-    p_vec_array = set_p_vec_array * np.exp(theta_array)
+    p_vec_array = set_p_vec_array * np.exp(phi_array)
     # run check to ensure all components are valid?
     leaf_likelihood_array = get_leaf_likelihood_array(layer_size, leaf_counts_array, p_vec_array)
     return p_vec_array, leaf_likelihood_array
@@ -448,7 +448,7 @@ def update_alpha_probabilities(alpha, alpha_probabilities_array, indicator_array
 ############################################################
 
 @njit()
-def sample_new_sigmas(layer_size, sigma_sigma, sigma_batch_array, c, sigmas, indicator_array, theta_array, theta_probabilities_array, sig_accepted_list, post_burnin, adaptive_winddown, batch, suppress):
+def sample_new_sigmas(layer_size, sigma_sigma, sigma_batch_array, c, sigmas, indicator_array, phi_array, phi_probabilities_array, sig_accepted_list, post_burnin, adaptive_winddown, batch, suppress):
     
     ## SIGMAS are sampled using a metropolis hastings step
     max_spike_sigma = 1
@@ -460,15 +460,15 @@ def sample_new_sigmas(layer_size, sigma_sigma, sigma_batch_array, c, sigmas, ind
         proposal_slab_sigma = np.random.normal(loc = slab_sigma, scale = sigma_sigma)
     proposal_spike_sigma = proposal_slab_sigma * c
     #### Evaluate the proposed sigma
-    current_posterior = np.sum(theta_probabilities_array)
-    prop_theta_probabilities_array  = get_vectorized_theta_probabilities(layer_size, proposal_slab_sigma, proposal_spike_sigma, theta_array, indicator_array)
-    proposal_posterior = np.sum(prop_theta_probabilities_array)
+    current_posterior = np.sum(phi_probabilities_array)
+    prop_phi_probabilities_array  = get_vectorized_phi_probabilities(layer_size, proposal_slab_sigma, proposal_spike_sigma, phi_array, indicator_array)
+    proposal_posterior = np.sum(prop_phi_probabilities_array)
     accept = perform_metropolis_step_numba(proposal_posterior, current_posterior, suppress = True)
 
     if accept:
         spike_sigma = proposal_spike_sigma
         slab_sigma = proposal_slab_sigma
-        theta_probabilities_array = prop_theta_probabilities_array
+        phi_probabilities_array = prop_phi_probabilities_array
         sig_accepted_list[0] += 1
         sigma_batch_array[0] += 1/BATCH
     #if batch and not post_burnin:
@@ -491,28 +491,28 @@ def sample_new_sigmas(layer_size, sigma_sigma, sigma_batch_array, c, sigmas, ind
         sigma_sigma = new_sigma_sigma
         
 
-    return (spike_sigma, slab_sigma), theta_probabilities_array, sigma_sigma
+    return (spike_sigma, slab_sigma), phi_probabilities_array, sigma_sigma
 
 
 @njit(parallel = True)
-def get_vectorized_theta_probabilities(layer_size, proposal_slab_sigma, proposal_spike_sigma, theta_array, indicator_array):
+def get_vectorized_phi_probabilities(layer_size, proposal_slab_sigma, proposal_spike_sigma, phi_array, indicator_array):
     
     neg_log_slab_sigma = -np.log(proposal_slab_sigma)
     neg_log_spike_sigma = -np.log(proposal_spike_sigma)
 
-    prop_theta_probabilities_array = np.zeros((layer_size, 3))
+    prop_phi_probabilities_array = np.zeros((layer_size, 3))
     
     for i in prange(layer_size):
         indicator = indicator_array[i]
         for j in range(3):
             sub_indicator = indicator[j]
-            sub_theta = theta_array[i][j]
+            sub_phi = phi_array[i][j]
             if sub_indicator == 1:
-                prop_theta_probabilities_array[i][j] = neg_log_slab_sigma - ((sub_theta/proposal_slab_sigma)**2)/2.0
+                prop_phi_probabilities_array[i][j] = neg_log_slab_sigma - ((sub_phi/proposal_slab_sigma)**2)/2.0
             elif sub_indicator == 0:
-                prop_theta_probabilities_array[i][j] = neg_log_spike_sigma - ((sub_theta/proposal_spike_sigma)**2)/2.0
+                prop_phi_probabilities_array[i][j] = neg_log_spike_sigma - ((sub_phi/proposal_spike_sigma)**2)/2.0
  
-    return prop_theta_probabilities_array
+    return prop_phi_probabilities_array
 
 
 ############################################################
@@ -520,13 +520,13 @@ def get_vectorized_theta_probabilities(layer_size, proposal_slab_sigma, proposal
 ############################################################
 
 @njit(parallel = True)
-def sample_new_thetas_decoupled(layer, layer_size, total_leaves, theta_array, set_p_vec_array, p_vec_array, theta_probabilities_array, indicator_array, sigmas, theta_sigma_array, c, alpha, theta_batch_array,  theta_sampling_alpha_array, theta_indicator_count_array, leaf_likelihood_array, leaf_counts_array, theta_accepted_array, post_burnin, adaptive_winddown, batch, suppress):    
+def sample_new_phis_decoupled(layer, layer_size, total_leaves, phi_array, set_p_vec_array, p_vec_array, phi_probabilities_array, indicator_array, sigmas, phi_sigma_array, c, alpha, phi_batch_array,  phi_sampling_alpha_array, phi_indicator_count_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, suppress):    
     accepted_array = np.zeros(3 * layer_size)
     
     for i in prange(layer_size):
         sub_indices = np.array([0,1,2])
-        theta = theta_array[i]
-        theta_probabilities = theta_probabilities_array[i]
+        phi = phi_array[i]
+        phi_probabilities = phi_probabilities_array[i]
         parent_p_vec = set_p_vec_array[i]
         p_vec = p_vec_array[i]
         leaf_likelihood = leaf_likelihood_array[i] 
@@ -536,77 +536,77 @@ def sample_new_thetas_decoupled(layer, layer_size, total_leaves, theta_array, se
         ## make sure I don't sample in a particular order that might bias results
         np.random.shuffle(sub_indices)
         
-        # for each theta sub index, propose and test a new value
+        # for each phi sub index, propose and test a new value
         for sub_index in sub_indices:
-            current_posterior = current_leaf_posterior + theta_probabilities[sub_index]
+            current_posterior = current_leaf_posterior + phi_probabilities[sub_index]
             sigma = sigmas[indicator_array[i][sub_index]]
             prop_p_vec = np.copy(p_vec)
             sub_parent_p_vec = parent_p_vec[sub_index]
-            theta_sigma = theta_sigma_array[i*3 + sub_index]
-            theta_alpha = theta_sampling_alpha_array[i*3 + sub_index]
-            theta_alpha = 0.5
-            # first sample from the thetas
+            phi_sigma = phi_sigma_array[i*3 + sub_index]
+            phi_alpha = phi_sampling_alpha_array[i*3 + sub_index]
+            phi_alpha = 0.5
+            # first sample from the phis
             ## first flip a coin to decide which distribution to sample from
             dist = indicator_array[i][sub_index]
-            prop_sub_theta = np.random.normal(loc = theta[sub_index], scale = theta_sigma * c**(1-dist))
-            prop_sub_p_vec = np.exp(prop_sub_theta) * sub_parent_p_vec
+            prop_sub_phi = np.random.normal(loc = phi[sub_index], scale = phi_sigma * c**(1-dist))
+            prop_sub_p_vec = np.exp(prop_sub_phi) * sub_parent_p_vec
             
             if prop_sub_p_vec <= 0:
                  continue
             prop_p_vec[sub_index] = prop_sub_p_vec
                 
-            # get the new theta probability
-            prop_sub_theta_probability = -np.log(sigma) - ((prop_sub_theta/sigma)**2)/2.0
+            # get the new phi probability
+            prop_sub_phi_probability = -np.log(sigma) - ((prop_sub_phi/sigma)**2)/2.0
             
-            ## I can then calculate likelihoods and accept or reject thetas
+            ## I can then calculate likelihoods and accept or reject phis
             ## first find the likelihood
             prop_leaf_posterior = get_edge_likelihood_numba(prop_p_vec, leaf_counts)        
-            proposal_posterior = prop_sub_theta_probability + prop_leaf_posterior
+            proposal_posterior = prop_sub_phi_probability + prop_leaf_posterior
             ## Next perform the metropolis step
             mh_suppress = True
             accept = perform_metropolis_step_numba(proposal_posterior, current_posterior, mh_suppress)
             
-            # update the values for this sampled theta if accepted
+            # update the values for this sampled phi if accepted
             if accept:
                 current_leaf_posterior = prop_leaf_posterior
                 leaf_likelihood_array[i] = current_leaf_posterior
-                theta[sub_index] = prop_sub_theta
+                phi[sub_index] = prop_sub_phi
                 p_vec[sub_index] = prop_sub_p_vec
-                theta_probabilities[sub_index] = prop_sub_theta_probability
+                phi_probabilities[sub_index] = prop_sub_phi_probability
                 accepted_array[i + sub_index] = 1
                
-                theta_batch_array[i*3 + sub_index] += np.float32(1/BATCH)
+                phi_batch_array[i*3 + sub_index] += np.float32(1/BATCH)
                     
             #if batch and not post_burnin:
             if batch and not adaptive_winddown:
-                lsi = np.log(theta_sigma) / 2
+                lsi = np.log(phi_sigma) / 2
                 adjustment = 0.01
                 
-                acceptance_rate = theta_batch_array[i*3 + sub_index]
+                acceptance_rate = phi_batch_array[i*3 + sub_index]
                 if acceptance_rate > 0.44:
                     lsi = lsi + adjustment
                 else:
                     lsi = lsi - adjustment
         
-                new_theta_sigma = np.exp(2 * lsi)
-                if new_theta_sigma <= 0:
-                    new_theta_sigma = theta_sigma
-                elif new_theta_sigma >= 1.5:
-                    new_theta_sigma = theta_sigma
+                new_phi_sigma = np.exp(2 * lsi)
+                if new_phi_sigma <= 0:
+                    new_phi_sigma = phi_sigma
+                elif new_phi_sigma >= 1.5:
+                    new_phi_sigma = phi_sigma
 
-                theta_sigma = new_theta_sigma
+                phi_sigma = new_phi_sigma
             
-                theta_sigma_array[i*3 + sub_index] = new_theta_sigma
+                phi_sigma_array[i*3 + sub_index] = new_phi_sigma
                 
-                indicator_count = theta_indicator_count_array[i*3 + sub_index]
-                new_theta_alpha = np.float32((500 + indicator_count) / (1000  + batch * BATCH))
+                indicator_count = phi_indicator_count_array[i*3 + sub_index]
+                new_phi_alpha = np.float32((500 + indicator_count) / (1000  + batch * BATCH))
                 
-                theta_sampling_alpha_array[i*3 + sub_index] = new_theta_alpha
+                phi_sampling_alpha_array[i*3 + sub_index] = new_phi_alpha
     
-    theta_accepted_array[0] += np.sum(accepted_array)
+    phi_accepted_array[0] += np.sum(accepted_array)
 
 @njit()
-def sample_new_thetas_decoupled_theta_naught(layer, layer_size, total_leaves, theta_array, p_vec_array, theta_sigma_array, theta_batch_array, leaf_likelihood_array, leaf_counts_array, theta_accepted_array, post_burnin, adaptive_winddown, batch, suppress):
+def sample_new_phis_decoupled_phi_naught(layer, layer_size, total_leaves, phi_array, p_vec_array, phi_sigma_array, phi_batch_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, suppress):
      
     # for the case where you are at the root of the tree. The sampling procedure is slightly different
     p_vec = p_vec_array[0]
@@ -619,10 +619,10 @@ def sample_new_thetas_decoupled_theta_naught(layer, layer_size, total_leaves, th
     np.random.shuffle(sub_indices)
     any_accept = False
     accepted_array = np.zeros(3)
-    # for each theta sub index, propose and test a new value
+    # for each phi sub index, propose and test a new value
     count = -1
     for i in range(layer_size):
-        theta = theta_array[i]
+        phi = phi_array[i]
         p_vec = p_vec_array[i]
         leaf_likelihood = leaf_likelihood_array[i]
         leaf_counts = leaf_counts_array[i]
@@ -632,56 +632,56 @@ def sample_new_thetas_decoupled_theta_naught(layer, layer_size, total_leaves, th
             count += 1
             current_posterior = current_leaf_posterior
             
-            theta_sigma = theta_sigma_array[i*3 + sub_index]
+            phi_sigma = phi_sigma_array[i*3 + sub_index]
             prop_p_vec = np.copy(p_vec)
 
-            # first sample from the thetas
-            prop_sub_theta = 0
+            # first sample from the phis
+            prop_sub_phi = 0
             prop_sub_p_vec = 0
             success = False
             while not success:
-                prop_sub_theta = np.random.normal(loc = theta[sub_index], scale = theta_sigma)
-                prop_sub_p_vec = prop_sub_theta
+                prop_sub_phi = np.random.normal(loc = phi[sub_index], scale = phi_sigma)
+                prop_sub_p_vec = prop_sub_phi
                 prop_p_vec[sub_index] = prop_sub_p_vec
                 if np.min(prop_p_vec) > 0 and np.sum(prop_p_vec) < 1.0:
                     success = True
 
-            ## I can then calculate likelihoods and accept or reject thetas
+            ## I can then calculate likelihoods and accept or reject phis
             ## first find the likelihood
             proposal_posterior = get_edge_likelihood_numba(prop_p_vec, leaf_counts)        
             ## Next perform the metropolis step
             mh_suppress = True
             accept = perform_metropolis_step_numba(proposal_posterior, current_posterior, mh_suppress)
-            # update the values for this sampled theta if accepted
+            # update the values for this sampled phi if accepted
             if accept:
                 any_accept = True
                 current_leaf_posterior = proposal_posterior
-                theta[sub_index] = prop_sub_theta
-                p_vec[sub_index] = prop_sub_theta
+                phi[sub_index] = prop_sub_phi
+                p_vec[sub_index] = prop_sub_phi
                 leaf_likelihood_array[i] = current_leaf_posterior 
                 accepted_array[count] = 1
                 # adjust the value of the proposal sigma
-                theta_batch_array[i*3 + sub_index] += np.float32(1/BATCH)
+                phi_batch_array[i*3 + sub_index] += np.float32(1/BATCH)
                      
             #if batch and not post_burnin:
             if batch and not adaptive_winddown:
-                lsi = np.log(theta_sigma) / 2
+                lsi = np.log(phi_sigma) / 2
                 adjustment = 0.01
                  
-                acceptance_rate = theta_batch_array[i*3 + sub_index]
+                acceptance_rate = phi_batch_array[i*3 + sub_index]
                 if acceptance_rate > 0.44:
                     lsi = lsi + adjustment
                 else:
                     lsi = lsi - adjustment
         
-                new_theta_sigma = np.exp(2 * lsi)
-                if new_theta_sigma <= 0:
-                    new_theta_sigma = theta_sigma
-                elif new_theta_sigma >= 1.5:
-                    new_theta_sigma = theta_sigma
-                theta_sigma_array[i*3 + sub_index] = new_theta_sigma
+                new_phi_sigma = np.exp(2 * lsi)
+                if new_phi_sigma <= 0:
+                    new_phi_sigma = phi_sigma
+                elif new_phi_sigma >= 1.5:
+                    new_phi_sigma = phi_sigma
+                phi_sigma_array[i*3 + sub_index] = new_phi_sigma
 
-        theta_accepted_array[0] += np.sum(accepted_array)
+        phi_accepted_array[0] += np.sum(accepted_array)
 
 
 ################################################################
@@ -690,7 +690,7 @@ def sample_new_thetas_decoupled_theta_naught(layer, layer_size, total_leaves, th
 
 
 @njit(parallel = True)
-def sample_new_indicator_gibbs(layer_size, alpha, alpha_probs, alpha_probabilities_array, indicator_array, theta_indicator_count_array, sigmas, theta_array, theta_probabilities_array, suppress):
+def sample_new_indicator_gibbs(layer_size, alpha, alpha_probs, alpha_probabilities_array, indicator_array, phi_indicator_count_array, sigmas, phi_array, phi_probabilities_array, suppress):
     
     spike_alpha_prob, slab_alpha_prob = alpha_probs
     spike_sigma, slab_sigma = sigmas
@@ -699,35 +699,35 @@ def sample_new_indicator_gibbs(layer_size, alpha, alpha_probs, alpha_probabiliti
    
         indicator = indicator_array[i]
         
-        theta = theta_array[i]
+        phi = phi_array[i]
         current_posterior = 0
         for sub_index in range(3):
-            sub_theta = theta[sub_index]
+            sub_phi = phi[sub_index]
             sub_indicator = indicator[sub_index]
-            slab_theta_probability = 0
-            spike_theta_probability = 0
+            slab_phi_probability = 0
+            spike_phi_probability = 0
             if sub_indicator == 1:
-                slab_theta_probability = theta_probabilities_array[i][sub_index]
-                spike_theta_probability = -np.log(spike_sigma) - ((sub_theta/spike_sigma)**2)/2.0
+                slab_phi_probability = phi_probabilities_array[i][sub_index]
+                spike_phi_probability = -np.log(spike_sigma) - ((sub_phi/spike_sigma)**2)/2.0
             else:
-                spike_theta_probability = theta_probabilities_array[i][sub_index]
-                slab_theta_probability = -np.log(slab_sigma) - ((sub_theta/slab_sigma)**2)/2.0
+                spike_phi_probability = phi_probabilities_array[i][sub_index]
+                slab_phi_probability = -np.log(slab_sigma) - ((sub_phi/slab_sigma)**2)/2.0
             
-            spike_posterior = np.exp(spike_alpha_prob + spike_theta_probability)
-            slab_posterior = np.exp(slab_alpha_prob + slab_theta_probability)
+            spike_posterior = np.exp(spike_alpha_prob + spike_phi_probability)
+            slab_posterior = np.exp(slab_alpha_prob + slab_phi_probability)
 
             sampling_p = slab_posterior / (slab_posterior + spike_posterior)
             new_sub_indicator = int(np.random.binomial(1, sampling_p, 1)[0])
             
             indicator_array[i][sub_index] = new_sub_indicator
             if new_sub_indicator == 1:
-                theta_probabilities_array[i][sub_index] = slab_theta_probability
+                phi_probabilities_array[i][sub_index] = slab_phi_probability
                 alpha_probabilities_array[i][sub_index] = slab_alpha_prob
             else:
-                theta_probabilities_array[i][sub_index] = spike_theta_probability
+                phi_probabilities_array[i][sub_index] = spike_phi_probability
                 alpha_probabilities_array[i][sub_index] = spike_alpha_prob
             
-            theta_indicator_count_array[3*i + sub_index] += indicator_array[i][sub_index]
+            phi_indicator_count_array[3*i + sub_index] += indicator_array[i][sub_index]
 
 #############################################################################
 ############################## COMPLEMENTARY FUNCTIONS ######################
@@ -820,8 +820,8 @@ def prep_set_data_from_matrices(set_start_dict, data_layer):
     burnin = set_start_dict['burnin']
     thinning_parameter = set_start_dict['thinning_parameter']
 
-    theta_sample_matrix_file = set_start_dict['theta_sample_matrix']
-    theta_sample_matrix = np.load(theta_sample_matrix_file)
+    phi_sample_matrix_file = set_start_dict['phi_sample_matrix']
+    phi_sample_matrix = np.load(phi_sample_matrix_file)
     layer_size = 4 ** data_layer * 2
     
     likelihood_matrix_file = set_start_dict['likelihood_matrix']
@@ -862,8 +862,8 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
         np.random.seed(int(random_seed))
         random.seed(int(random_seed))
     ## Init all the returned arrays
-    theta_array = np.zeros((layer_size, 3), dtype=np.float32)
-    theta_probabilities_array = np.zeros((layer_size, 3))
+    phi_array = np.zeros((layer_size, 3), dtype=np.float32)
+    phi_probabilities_array = np.zeros((layer_size, 3))
     p_vec_array = np.ones((layer_size, 3), dtype=np.float32)
     indicator_array = np.zeros((layer_size, 3), dtype=np.int32)
     alpha_probabilities_array = np.zeros((layer_size, 3))
@@ -880,10 +880,10 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
         array_index = -1
         for context in context_list:
             array_index += 1
-            init_theta = np.random.uniform(low = 0.0, high = 0.02, size = 3)
-            init_p_vec = init_theta
+            init_phi = np.random.uniform(low = 0.0, high = 0.02, size = 3)
+            init_p_vec = init_phi
                 
-            theta_array[array_index] = init_theta
+            phi_array[array_index] = init_phi
             p_vec_array[array_index] = init_p_vec
             
             # get leaf_counts
@@ -927,8 +927,8 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
                     
                 context_list[array_index] = child_context
                 
-                # Init theta
-                init_theta = np.array([0, 0, 0])
+                # Init phi
+                init_phi = np.array([0, 0, 0])
                 init_p_vec = 0
                 init_indicator = np.array([0, 0, 0])
                 
@@ -937,13 +937,13 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
                 success = False
                 while not success:
                     if not zero_init:
-                        init_theta = np.random.uniform(low = -0.7, high = 0.7, size = 3)
-                    init_p_vec = parent_p_vec * np.exp(init_theta)
+                        init_phi = np.random.uniform(low = -0.7, high = 0.7, size = 3)
+                    init_p_vec = parent_p_vec * np.exp(init_phi)
                     # make sure this p_vec is valid
                     if np.sum(init_p_vec) < 1 and min(init_p_vec) > 0:
                         success = True 
                 
-                theta_array[array_index] = init_theta
+                phi_array[array_index] = init_phi
                 p_vec_array[array_index] = init_p_vec
                 
                 # Init indicator
@@ -951,7 +951,7 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
                     init_indicator = np.random.randint(2, size = 3)
                     indicator_array[array_index] = init_indicator
 
-                # Init sigma array, theta probabilities, alpha probabilities
+                # Init sigma array, phi probabilities, alpha probabilities
                 count = 0
                 for j in init_indicator:
                     sigma = slab_sigma
@@ -959,9 +959,9 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
                     if j == 0:
                         sigma = spike_sigma
                         alpha_prob = spike_alpha_prob
-                    sub_theta_probability = -np.log(sigma) - ((init_theta[count]/sigma)**2)/2.0
+                    sub_phi_probability = -np.log(sigma) - ((init_phi[count]/sigma)**2)/2.0
                     
-                    theta_probabilities_array[array_index][count] = sub_theta_probability
+                    phi_probabilities_array[array_index][count] = sub_phi_probability
                     alpha_probabilities_array[array_index][count] = alpha_prob
                     count += 1
                 # get leaf_counts
@@ -976,7 +976,7 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
 
                 index_mod += 1
 
-    return theta_array, p_vec_array, indicator_array, context_list, leaf_count_array, theta_probabilities_array, alpha_probabilities_array
+    return phi_array, p_vec_array, indicator_array, context_list, leaf_count_array, phi_probabilities_array, alpha_probabilities_array
 
 
 def get_adjusted_leaf_counts(leaf_contexts, leaf_count_dict):
@@ -1059,10 +1059,10 @@ def write_layer_report(output_dir, layer, dataset, pop, feature, random_seed, nu
         out.write("Thin number: {}\nPost-thinning samples: {}\nzero init: {}\n".format(thinning_interval, post_thin_samples, zero_init))
         out.write("--------------\n")
         out.write("Jump information\nProposal Sigma: {}\nSigma sigma: {}\nalpha sigma: {}\nIndicator sampling method: {}\n".format(starting_hyperparameters[0], starting_hyperparameters[1], starting_hyperparameters[5], starting_hyperparameters[6]))
-        out.write("Fraction sub thetas accepted: {}\nFraction sigmas accepted: {}\nFraction alphas accepted: {}\n".format(accepted_tuple[2], accepted_tuple[0], accepted_tuple[1]))
+        out.write("Fraction sub phis accepted: {}\nFraction sigmas accepted: {}\nFraction alphas accepted: {}\n".format(accepted_tuple[2], accepted_tuple[0], accepted_tuple[1]))
         out.write("--------------\n")
         out.write("Set starting conditions\nc: {}\nset_sigma: {}\nslab sigma: {}\nalpha: {}\n".format(starting_hyperparameters[2], set_sigma, starting_hyperparameters[3],starting_hyperparameters[4]))
-        #out.write("Timings\nAverage time per iteration: {}\nAvg init set edges time: {}\nAvg indicator sampling time: {}\nAvg theta sampling time: {}\nAvg alpha sampling time: {}\nAvg sigma sampling time: {}\n".format(timing_tuple[0], timing_tuple[1], timing_tuple[2], timing_tuple[3], timing_tuple[4], timing_tuple[5]))
+        #out.write("Timings\nAverage time per iteration: {}\nAvg init set edges time: {}\nAvg indicator sampling time: {}\nAvg phi sampling time: {}\nAvg alpha sampling time: {}\nAvg sigma sampling time: {}\n".format(timing_tuple[0], timing_tuple[1], timing_tuple[2], timing_tuple[3], timing_tuple[4], timing_tuple[5]))
         out.write("--------------")
 
 
