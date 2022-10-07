@@ -19,7 +19,7 @@ dataset: "ALL"
   proposal_sigmas:
     alpha_sigma: 0
     sigma_sigma: 0
-    theta_sigma: 0.00005
+    phi_sigma: 0.00005
     indicator_sampling: 'gibbs'
 1:
   iteration_burnin:
@@ -31,7 +31,7 @@ dataset: "ALL"
   proposal_sigmas:
     alpha_sigma: 'beta'
     sigma_sigma: 0.2
-    theta_sigma: 0.001
+    phi_sigma: 0.001
     indicator_sampling: 'gibbs'
 2:
   iteration_burnin:
@@ -43,7 +43,7 @@ dataset: "ALL"
   proposal_sigmas:
     alpha_sigma: 'beta'
     sigma_sigma: 0.02
-    theta_sigma: 0.005
+    phi_sigma: 0.005
     indicator_sampling: 'gibbs'
 3:
   iteration_burnin:
@@ -55,7 +55,7 @@ dataset: "ALL"
   proposal_sigmas:
     alpha_sigma: 'beta'
     sigma_sigma: 0.006
-    theta_sigma: 0.005
+    phi_sigma: 0.005
     indicator_sampling: 'gibbs'
 4:
   iteration_burnin:
@@ -67,6 +67,6 @@ dataset: "ALL"
   proposal_sigmas:
     alpha_sigma: 'beta'
     sigma_sigma: 0.004
-    theta_sigma: 0.005
+    phi_sigma: 0.005
     indicator_sampling: 'gibbs'
 ...
