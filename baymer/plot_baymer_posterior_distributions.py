@@ -19,6 +19,7 @@ import os
 import yaml
 import json
 from scipy.stats import norm
+import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib import colors
@@ -32,7 +33,8 @@ def help(exit_num=1):
     print("""-----------------------------------------------------------------
 ARGUMENTS
     -c => <yaml> config file REQUIRED
-    -t => <boolean> plot theta plots OPTIONAL
+    -p => <boolean> plot phi plots OPTIONAL
+    -e => <yaml> empirical count json config file OPTIONAL
 """)
     sys.exit(exit_num)
 
@@ -46,7 +48,7 @@ ARGUMENTS
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "c:t")
+        opts, args = getopt.getopt(sys.argv[1:], "c:pe:")
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
         help()
@@ -61,16 +63,17 @@ def main(argv):
         print("Error: One of your required arguments does not exist.")
         help()
     
-    plot_thetas = options_dict.get('-t', False)
-    if plot_thetas == '':
-        plot_thetas = True
+    plot_phis = options_dict.get('-p', False)
+    if plot_phis == '':
+        plot_phis = True
     
+    empirical_value_config_file = options_dict.get('-e', False)
 
     print("Acceptable Inputs Given")
     
     
 
-    driver(config_file, skip_thetas)
+    driver(config_file, plot_phis, empirical_value_config_file)
 
 
 ###############################################################################
@@ -81,7 +84,7 @@ def main(argv):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(config_file, plot_thetas = False):
+def driver(config_file, plot_phis = False, empirical_value_config_file = False):
 
     config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
     
@@ -94,6 +97,14 @@ def driver(config_file, plot_thetas = False):
     random_seeds = config_dict['random_seeds']
     dataset = config_dict['dataset']
     c = config_dict['c']
+    
+    # generate output directory if it doesn't exist yet. Automatically named after the dataset
+    output_dir = posterior_dir + dataset + "_outplots/"
+    try:
+        os.mkdir(output_dir)
+    except FileExistsError:
+        pass
+
     summary_posterior_dict = {dataset: {}}
     for layer in range(0, max_layer + 1):
         print("Layer ", layer)
@@ -102,9 +113,7 @@ def driver(config_file, plot_thetas = False):
         index_dict = posterior_dir + "index_dict.layer_" + str(layer) + ".json"
 
         index_context_dict = open_json_dict(index_dict)
-        num_iterations = config_dict[layer]["num_iterations"]
-        
-        burnin = config_dict[layer]["burnin"]
+        num_iterations, burnin = config_dict[layer]["iteration_burnin"]
         thinning_parameter = config_dict[layer]["thinning_parameter"]
         thinned_burnin = 0
 
@@ -112,38 +121,33 @@ def driver(config_file, plot_thetas = False):
         dir_name = "layer_" + str(layer)
         layer_output_dir = output_dir + dir_name
         try:
-            os.mkdir(output_dir)
-        except FileExistsError:
-            pass
-
-        try:
             os.mkdir(layer_output_dir)
         except FileExistsError:
             pass
 
         likelihood_data_list = []
         p_data_list = []  
-        theta_data_list = []
+        phi_data_list = []
         ind_data_list = []
-        # first thetas and p_vec
-        if plot_thetas:
-            for random_seed in random_seeds:
-                theta_chain_matrix_file = "{}{}_{}_{}_rs{}_thetas.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
-                theta_data_list.append(theta_chain_matrix_file)
+        # first phis and p_vec
+        for random_seed in random_seeds:
+            phi_chain_matrix_file = "{}{}_{}_{}_rs{}_phis.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
+            phi_data_list.append(phi_chain_matrix_file)
         
-                p_vec_file = "{}{}_{}_{}_rs{}_rate_matrix.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
-                p_data_list.append(p_vec_file)
+            p_vec_file = "{}{}_{}_{}_rs{}_rate_matrix.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
+            p_data_list.append(p_vec_file)
 
-                ind_file = "{}{}_{}_{}_rs{}_indicator.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
-                ind_data_list.append(ind_file)
-            theta_out_dir = "{}/theta_out_plots/".format(layer_output_dir)
+            ind_file = "{}{}_{}_{}_rs{}_indicator.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
+            ind_data_list.append(ind_file)
+        if plot_phis:
+            phi_out_dir = "{}/phi_out_plots/".format(layer_output_dir)
             try:
-                os.mkdir(theta_out_dir)
+                os.mkdir(phi_out_dir)
             except FileExistsError:
                 pass
 
-            plot_theta_chain(layer, random_seeds, theta_data_list, p_data_list, ind_data_list, theta_out_dir, index_context_dict, true_values_dict, summary_posterior_dict[dataset][layer], thinned_burnin, plot_thetas)
-            print('thetas plotted')
+        plot_phi_chain(layer, pop, dataset, feature, random_seeds, phi_data_list, p_data_list, ind_data_list, phi_out_dir, index_context_dict, empirical_value_config_file, summary_posterior_dict[dataset][layer], thinned_burnin, plot_phis)
+        
         # next sigmas, alphas, and indicators
         if layer != 0:
             skip_sigma = False
@@ -182,7 +186,7 @@ def driver(config_file, plot_thetas = False):
 
 def plot_likelihoods(chain_lists, data_list, burnin, thinning_parameter, output_dir, summary_posterior_dict):
 
-    likelihood_label_dict = {0: 'theta probability',
+    likelihood_label_dict = {0: 'phi probability',
                              1: 'alpha probability',
                              2: 'leaf likelihood',
                              3: 'set_probability',
@@ -247,8 +251,11 @@ def plot_likelihoods(chain_lists, data_list, burnin, thinning_parameter, output_
     plt.savefig(output_file)
  
 
-def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_list, output_dir, index_context_dict, true_values_dict, summary_posterior_dict, thinned_burnin, plot_thetas):
+def plot_phi_chain(layer, pop, dataset, feature, chain_lists, phi_data_list, p_data_list, ind_data_list, output_dir, index_context_dict, empirical_value_config_file, summary_posterior_dict, thinned_burnin, plot_phis):
     
+    empirical_value_config_dict = False
+    if empirical_value_config_file: 
+        empirical_value_config_dict = yaml.load(open(empirical_value_config_file, 'r'), Loader=yaml.SafeLoader)
     
     fig, axs = plt.subplots(4, figsize = (10, 30))
     
@@ -258,31 +265,31 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
     master_data_dict = {}
     mut_ground_truth_dict = {}
     x_vals = None
-    posterior_distribution_dict = {'theta': {},
+    posterior_distribution_dict = {'phi': {},
                                    'p': {},
                                    'ind': {}}
     
     empirical_p_context_dict = {}
     p_vec_all_chains_dict = {}
-    theta_all_chains_dict = {}
+    phi_all_chains_dict = {}
     ind_all_chains_dict = {}
     
-    summary_posterior_dict['theta'] = {}
+    summary_posterior_dict['phi'] = {}
     summary_posterior_dict['p_vec'] = {}
     no_ind = False
     for i in range(num_chains):
         chain = chain_lists[i]
         chain_label = "rs{}".format(chain)
-        mat = theta_data_list[i]
-        theta_data_matrix = np.load(mat)
-        mean_thetas = np.mean(theta_data_matrix[thinned_burnin:, :, :], axis = 0).flatten()
-        print(len(mean_thetas))
+        mat = phi_data_list[i]
+        phi_data_matrix = np.load(mat)
+        mean_phis = np.mean(phi_data_matrix[thinned_burnin:, :, :], axis = 0).flatten()
+        print(len(mean_phis))
 
-        x_vals = range(len(theta_data_matrix))
-        axs[0].hist(mean_thetas, alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
-        axs[1].hist(theta_data_matrix[thinned_burnin:, :, :].flatten(), alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
-        axs[2].hist(theta_data_matrix[0, :, :].flatten(), alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
-        axs[3].hist(theta_data_matrix[-1, :, :].flatten(), alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
+        x_vals = range(len(phi_data_matrix))
+        axs[0].hist(mean_phis, alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
+        axs[1].hist(phi_data_matrix[thinned_burnin:, :, :].flatten(), alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
+        axs[2].hist(phi_data_matrix[0, :, :].flatten(), alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
+        axs[3].hist(phi_data_matrix[-1, :, :].flatten(), alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
         mat = p_data_list[i]
         
         p_data_matrix = np.load(mat)
@@ -303,10 +310,10 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
         true_diff_list = []
         emp_diff_list = []
         #for row in transposed_data:
-        for index in range(len(theta_data_matrix[0])):
-            #theta_row = [list(x[index]) for x in theta_data_matrix]
+        for index in range(len(phi_data_matrix[0])):
+            #phi_row = [list(x[index]) for x in phi_data_matrix]
             #p_row = [list(x[index]) for x in p_data_matrix]
-            theta_row = theta_data_matrix[thinned_burnin:, index, :]
+            phi_row = phi_data_matrix[thinned_burnin:, index, :]
             p_row = p_data_matrix[thinned_burnin:, index, :]            
             ind_row = []
             if not no_ind:
@@ -315,28 +322,28 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
             
             if i == 0:
                 p_vec_all_chains_dict[context_string] = p_row
-                theta_all_chains_dict[context_string] = theta_row
+                phi_all_chains_dict[context_string] = phi_row
                 if not no_ind:
                     ind_all_chains_dict[context_string] = ind_row
             else:
                 p_vec_all_chains_dict[context_string] = np.append(p_vec_all_chains_dict[context_string], p_row, axis = 0)
-                theta_all_chains_dict[context_string] = np.append(theta_all_chains_dict[context_string], theta_row, axis = 0)
+                phi_all_chains_dict[context_string] = np.append(phi_all_chains_dict[context_string], phi_row, axis = 0)
                 if not no_ind:
                     ind_all_chains_dict[context_string] = np.append(ind_all_chains_dict[context_string], ind_row, axis = 0)
             if i == num_chains - 1:
-                summary_posterior_dict['theta'][context_string] = {}
+                summary_posterior_dict['phi'][context_string] = {}
                 summary_posterior_dict['p_vec'][context_string] = {}
-                theta_array = theta_all_chains_dict[context_string] 
+                phi_array = phi_all_chains_dict[context_string] 
                 p_vec_array = p_vec_all_chains_dict[context_string] 
 
-                summary_posterior_dict['theta'][context_string]['mean'] = np.mean(theta_array, axis = 0).tolist()
+                summary_posterior_dict['phi'][context_string]['mean'] = np.mean(phi_array, axis = 0).tolist()
                 summary_posterior_dict['p_vec'][context_string]['mean'] = np.mean(p_vec_array, axis = 0).tolist()
 
                 
             
 
 
-            if not plot_thetas:
+            if not plot_phis:
                 continue
             center_nuc = context_string[int(len(context_string)/2)]
             if len(context_string) % 2 == 0:
@@ -344,53 +351,54 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
             mut_indices = [0, 2, 3]
             if center_nuc == 'A':
                 mut_indices = [1, 2, 3]
-            #theta_posterior_distribution = theta_row
+            #phi_posterior_distribution = phi_row
             #p_posterior_distribution = thinned_p_row
             context_length = len(context_string)
             if context_length > previous_context_length:
                 open_dict = False
                 previous_context_length = context_length
-            if not open_dict:
-                count_ground_truth_dict_file = true_values_dict[str(context_length) + 'mer']['context_counts']
-                count_ground_truth_dict = open_json_dict(count_ground_truth_dict_file)
+            if empirical_value_config_dict:
+                if not open_dict:
+                    count_ground_truth_dict_file = empirical_value_config_dict[pop][feature][str(context_length) + 'mer'][dataset]
+                    count_ground_truth_dict = open_json_dict(count_ground_truth_dict_file)
 
-            theta_index = 0
+            phi_index = 0
             for context_base in mut_indices:
                 mut_string = context_string + ">" + mut_nuc_index_look_up[context_base]
                 try:
-                    sub_theta_posterior = theta_row[:, theta_index]
-                    #sub_theta_posterior = [x[theta_index] for x in theta_posterior_distribution]
-                    sub_p_posterior = p_row[:, theta_index]
-                    #sub_p_posterior = [x[theta_index] for x in p_posterior_distribution]
+                    sub_phi_posterior = phi_row[:, phi_index]
+                    #sub_phi_posterior = [x[phi_index] for x in phi_posterior_distribution]
+                    sub_p_posterior = p_row[:, phi_index]
+                    #sub_p_posterior = [x[phi_index] for x in p_posterior_distribution]
                     sub_ind_posterior = []
                     if not no_ind:
-                        sub_ind_posterior = ind_row[:, theta_index]
+                        sub_ind_posterior = ind_row[:, phi_index]
                 except TypeError:
                     print("Error!!!!: ", mut_string)
                     continue 
-                
-                empirical_p = count_ground_truth_dict[context_string][context_base] / count_ground_truth_dict[context_string][4]
-                empirical_p_context_dict[mut_string] = empirical_p
+                if empirical_value_config_dict:
+                    empirical_p = count_ground_truth_dict[context_string][context_base] / count_ground_truth_dict[context_string][4]
+                    empirical_p_context_dict[mut_string] = empirical_p
                  
                 ## add to data objects
                 try:
-                    posterior_distribution_dict['theta'][context_string][mut_string][i] = sub_theta_posterior
+                    posterior_distribution_dict['phi'][context_string][mut_string][i] = sub_phi_posterior
                     posterior_distribution_dict['p'][context_string][mut_string][i] = sub_p_posterior
                     if not no_ind:
                         posterior_distribution_dict['ind'][context_string][mut_string][i] = sub_ind_posterior
                 except KeyError:
                     try:
-                        posterior_distribution_dict['theta'][context_string][mut_string] = [0] * num_chains
-                        posterior_distribution_dict['theta'][context_string][mut_string][0] = sub_theta_posterior
+                        posterior_distribution_dict['phi'][context_string][mut_string] = [0] * num_chains
+                        posterior_distribution_dict['phi'][context_string][mut_string][0] = sub_phi_posterior
                         posterior_distribution_dict['p'][context_string][mut_string] = [0] * num_chains
                         posterior_distribution_dict['p'][context_string][mut_string][0] = sub_p_posterior
                         if not no_ind:
                             posterior_distribution_dict['ind'][context_string][mut_string] = [0] * num_chains
                             posterior_distribution_dict['ind'][context_string][mut_string][0] = sub_ind_posterior
                     except KeyError:
-                        posterior_distribution_dict['theta'][context_string] = {}
-                        posterior_distribution_dict['theta'][context_string][mut_string] = [0] * num_chains
-                        posterior_distribution_dict['theta'][context_string][mut_string][0] = sub_theta_posterior
+                        posterior_distribution_dict['phi'][context_string] = {}
+                        posterior_distribution_dict['phi'][context_string][mut_string] = [0] * num_chains
+                        posterior_distribution_dict['phi'][context_string][mut_string][0] = sub_phi_posterior
                         posterior_distribution_dict['p'][context_string] = {}
                         posterior_distribution_dict['p'][context_string][mut_string] = [0] * num_chains
                         posterior_distribution_dict['p'][context_string][mut_string][0] = sub_p_posterior
@@ -399,20 +407,20 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
                             posterior_distribution_dict['ind'][context_string][mut_string] = [0] * num_chains
                             posterior_distribution_dict['ind'][context_string][mut_string][0] = sub_ind_posterior
 
-                theta_index += 1
+                phi_index += 1
     axs[0].legend()
     axs[1].legend()
     axs[2].legend()
     axs[3].legend()
-    file_name = "{}/theta_distribution_histograms.layer_{}.png".format(output_dir, layer)
+    file_name = "{}/phi_distribution_histograms.layer_{}.png".format(output_dir, layer)
     plt.savefig(file_name)
     plt.close(fig)
     
-    if not plot_thetas:
+    if not plot_phis:
         return
     print('+++++++')
     # all data has been gathered
-    for context_string in posterior_distribution_dict['theta']:
+    for context_string in posterior_distribution_dict['phi']:
        
         fig, axs = plt.subplots(3,3, figsize = (25, 25))
         if not no_ind:
@@ -422,7 +430,7 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
         mean_chain = 0
         
         mut_string_index = 0
-        for mut_string in posterior_distribution_dict['theta'][context_string]:
+        for mut_string in posterior_distribution_dict['phi'][context_string]:
             
             axs[2, mut_string_index].set(xlabel = "Iteration")
             if not no_ind:
@@ -434,17 +442,17 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
                 if not no_ind:
                     axs[3,0].set(ylabel = "Indicator average")
             for chain_index in range(len(chain_lists)):
-                theta_y_vals = posterior_distribution_dict['theta'][context_string][mut_string][chain_index]
+                phi_y_vals = posterior_distribution_dict['phi'][context_string][mut_string][chain_index]
                 p_y_vals = posterior_distribution_dict['p'][context_string][mut_string][chain_index]
                 chain_label = "rs_{}".format(chain_lists[chain_index])
                 
                 axs[0, mut_string_index].hist(p_y_vals, alpha = 0.5, label = chain_label)
                 axs[0, mut_string_index].set(xlabel = "multinomial p")
                 axs[0, mut_string_index].set_title(mut_string)
-                axs[1, mut_string_index].hist(theta_y_vals, alpha = 0.5, label = chain_label)
+                axs[1, mut_string_index].hist(phi_y_vals, alpha = 0.5, label = chain_label)
                 axs[1, mut_string_index].set(xlabel = "Theta")
  
-                axs[2, mut_string_index].plot(x_vals, theta_y_vals, label = chain_label)
+                axs[2, mut_string_index].plot(x_vals, phi_y_vals, label = chain_label)
                 if not no_ind:
                     ind_y_vals = posterior_distribution_dict['ind'][context_string][mut_string][chain_index]
                     pad_ind_y_vals = np.append(np.zeros(250), ind_y_vals, axis = 0)
@@ -459,13 +467,13 @@ def plot_theta_chain(layer, chain_lists, theta_data_list, p_data_list, ind_data_
                     axs[2, 0].legend()
                     if not no_ind:
                         axs[3,0].legend()
-
-            emp_p = empirical_p_context_dict[mut_string]
-            axs[0, mut_string_index].axvline(x = emp_p, linestyle = 'dashed', label = "empirical estimate".format(chain_label))
+            if empirical_value_config_dict: 
+                emp_p = empirical_p_context_dict[mut_string]
+                axs[0, mut_string_index].axvline(x = emp_p, linestyle = 'dashed', label = "empirical estimate".format(chain_label))
 
             mut_string_index += 1
         
-        file_name = "{}/theta_{}_posterior_plots.png".format(output_dir, context_string)
+        file_name = "{}/phi_{}_posterior_plots.png".format(output_dir, context_string)
         plt.savefig(file_name)
         
         plt.close(fig)
@@ -498,10 +506,9 @@ def plot_alpha_chain(chain_lists, alpha_data_list, ind_data_list, output_dir, su
         alpha_data_array = np.load(mat)[thinned_burnin:]
         ind_mat = ind_data_list[i]
         ind_data_array = np.load(ind_mat)[thinned_burnin:]
-        total_sub_thetas = len(ind_data_array[0]) * 3
+        total_sub_phis = len(ind_data_array[0]) * 3
         
         index = 0
-        mer_level = 0
         if i == 0:
             all_alpha_chains = alpha_data_array
         else:
@@ -515,7 +522,7 @@ def plot_alpha_chain(chain_lists, alpha_data_list, ind_data_list, output_dir, su
         mean_chain = float(np.mean(alpha_data_array))
         axs[1].axhline(y=mean_chain, linestyle = '--', label = "mean {}".format(chain_label))
 
-        ind_ratios = [np.sum(x) / total_sub_thetas for x in ind_data_array]
+        ind_ratios = [np.sum(x) / total_sub_phis for x in ind_data_array]
         axs[2].plot(x_vals, ind_ratios, label = chain_label)
     max_alpha = max(all_alpha_chains)
     min_alpha = min(all_alpha_chains)
@@ -602,7 +609,7 @@ def plot_indicator_distribution(chain_lists, ind_data_list, output_dir, index_co
     ax_per_flip.set(ylabel = "Count")
 
     ax_variable = axs[2]
-    ax_variable.set(ylabel = "% thetas switched")
+    ax_variable.set(ylabel = "% phis switched")
     ax_variable.set(xlabel = 'Iteration')
 
     for i in range(num_chains):
@@ -611,23 +618,23 @@ def plot_indicator_distribution(chain_lists, ind_data_list, output_dir, index_co
         mat = ind_data_list[i]
         ind_data_array = np.load(mat)
         total_contexts = len(ind_data_array[0])
-        total_thetas = total_contexts * 3
+        total_phis = total_contexts * 3
         total_iterations = len(ind_data_array)
-        hist_vals = np.zeros(total_thetas)
-        total_flips = np.zeros(total_thetas)
+        hist_vals = np.zeros(total_phis)
+        total_flips = np.zeros(total_phis)
         change_per_iteration = np.zeros(total_iterations)
         for index in range(total_contexts):
             context_string = index_context_dict[str(index)]
-            theta_ind_array = ind_data_array[thinned_burnin:, index, :]
+            phi_ind_array = ind_data_array[thinned_burnin:, index, :]
             if i == 0:
-                all_chains_indicator_dict[context_string] = theta_ind_array
+                all_chains_indicator_dict[context_string] = phi_ind_array
             else:
-                all_chains_indicator_dict[context_string] = np.append(all_chains_indicator_dict[context_string], theta_ind_array, axis = 0)
+                all_chains_indicator_dict[context_string] = np.append(all_chains_indicator_dict[context_string], phi_ind_array, axis = 0)
             if i == num_chains - 1:
                 summary_posterior_dict['ind'][context_string] = (np.sum(all_chains_indicator_dict[context_string], axis = 0) / float(total_iterations * num_chains)).tolist()
                 
             for j in range(3):
-                ind_array = theta_ind_array[:, j]
+                ind_array = phi_ind_array[:, j]
                 percent_slab = float(np.sum(ind_array)) / float(total_iterations)
                 hist_vals[index * 3 + j] = percent_slab
                 
@@ -643,7 +650,7 @@ def plot_indicator_distribution(chain_lists, ind_data_list, output_dir, index_co
 
         percent_flips = total_flips / total_iterations
 
-        percent_change = change_per_iteration / total_thetas 
+        percent_change = change_per_iteration / total_phis 
         x_vals = range(total_iterations)
                     
         # plot the first ax
@@ -662,6 +669,184 @@ def plot_indicator_distribution(chain_lists, ind_data_list, output_dir, index_co
     file_name = "{}/indicator_posterior_plots.png".format(output_dir)
     plt.savefig(file_name)
     plt.close(fig)
+
+
+def phi_plot(param_config_file, context_string, empirical_value_config_file):
+    
+    config_dict = yaml.load(open(param_config_file, 'r'), Loader=yaml.SafeLoader)
+    
+    #train_data_list = ['EVEN', 'ODD']
+    # gather overall info from config dict
+    max_layer = config_dict['max_mer'] - 1
+    pop = config_dict['pop']
+    feature = config_dict['feature']
+    posterior_dir = config_dict['posterior_dir']
+    random_seeds = config_dict['random_seeds']
+    dataset = config_dict['dataset']
+    c = config_dict['c']
+    layer = len(context_string) - 1
+    # gather layer data
+    index_dict = posterior_dir + "index_dict.layer_" + str(layer) + ".json"
+    index_context_dict = open_json_dict(index_dict)
+    context_index_dict = {c: int(i) for i, c in index_context_dict.items()}
+    context_index = context_index_dict[context_string]
+    num_iterations, burnin = config_dict[layer]["iteration_burnin"]
+    thinning_parameter = config_dict[layer]["thinning_parameter"]
+    thinned_burnin = 0
+
+    likelihood_data_list = []
+    p_data_list = []  
+    phi_data_list = []
+    ind_data_list = []
+    
+    for random_seed in random_seeds:
+        phi_chain_matrix_file = "{}{}_{}_{}_rs{}_phis.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
+        phi_data_list.append(phi_chain_matrix_file)
+    
+        p_vec_file = "{}{}_{}_{}_rs{}_rate_matrix.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
+        p_data_list.append(p_vec_file)
+
+        ind_file = "{}{}_{}_{}_rs{}_indicator.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
+        ind_data_list.append(ind_file)
+    
+
+    empirical_value_config_dict = False
+    if empirical_value_config_file: 
+        empirical_value_config_dict = yaml.load(open(empirical_value_config_file, 'r'), Loader=yaml.SafeLoader)
+    
+    fig, axs = plt.subplots(4,3, figsize = (25, 35))
+    no_ind = False
+    if layer == 0:
+        plt.close(fig)
+        no_ind = True
+        fig, axs = plt.subplots(3,3, figsize = (25, 25))
+    
+    plt.subplots_adjust(top=0.85)
+ 
+    mut_nuc_index_look_up = ['A', 'C', 'G', 'T']
+    mut_indices = []
+    num_chains = len(random_seeds)
+    master_data_dict = {}
+    mut_ground_truth_dict = {}
+    x_vals = None
+    posterior_distribution_dict = {'phi': {},
+                                   'p': {},
+                                   'ind': {}}
+    
+    empirical_p_context_dict = {}
+    p_vec_all_chains_dict = {}
+    phi_all_chains_dict = {}
+    ind_all_chains_dict = {}
+    
+    for i in range(num_chains):
+        chain = random_seeds[i]
+        chain_label = "rs{}".format(chain)
+        mat = phi_data_list[i]
+        phi_data_matrix = np.load(mat)
+        p_data_matrix = np.load(mat)
+        
+        try:
+            mat = ind_data_list[i]
+            ind_data_matrix = np.load(mat)
+        except FileNotFoundError:
+            no_ind = True
+            
+        x_vals = range(len(phi_data_matrix))
+ 
+        open_dict = False
+        mer_level = 0
+        previous_context_length = -1
+        #print('++++++++')
+        true_diff_list = []
+        emp_diff_list = []
+        #for row in transposed_data:
+        #phi_row = [list(x[index]) for x in phi_data_matrix]
+        #p_row = [list(x[index]) for x in p_data_matrix]
+        phi_row = phi_data_matrix[thinned_burnin:, context_index, :]
+        p_row = p_data_matrix[thinned_burnin:, context_index, :]            
+        ind_row = []
+        if not no_ind:
+            ind_row = ind_data_matrix[thinned_burnin:, context_index, :]
+        
+        if i == 0:
+            p_vec_all_chains_dict[context_string] = p_row
+            phi_all_chains_dict[context_string] = phi_row
+            if not no_ind:
+                ind_all_chains_dict[context_string] = ind_row
+        else:
+            p_vec_all_chains_dict[context_string] = np.append(p_vec_all_chains_dict[context_string], p_row, axis = 0)
+            phi_all_chains_dict[context_string] = np.append(phi_all_chains_dict[context_string], phi_row, axis = 0)
+            if not no_ind:
+                ind_all_chains_dict[context_string] = np.append(ind_all_chains_dict[context_string], ind_row, axis = 0)
+        if i == num_chains - 1:
+            phi_array = phi_all_chains_dict[context_string] 
+            p_vec_array = p_vec_all_chains_dict[context_string] 
+
+        center_nuc = context_string[int(len(context_string)/2)]
+        if len(context_string) % 2 == 0:
+            center_nuc = context_string[int(len(context_string)/2) - 1]
+        mut_indices = [0, 2, 3]
+        if center_nuc == 'A':
+            mut_indices = [1, 2, 3]
+        context_length = len(context_string)
+        if context_length > previous_context_length:
+            open_dict = False
+            previous_context_length = context_length
+        if empirical_value_config_dict:
+            if not open_dict:
+                count_ground_truth_dict_file = empirical_value_config_dict[pop][feature][str(context_length) + 'mer'][dataset]
+                count_ground_truth_dict = open_json_dict(count_ground_truth_dict_file)
+
+        phi_index = 0
+        for context_base in mut_indices:
+            axs[2, phi_index].set(xlabel = "Iteration")
+            if not no_ind:
+                axs[3, phi_index].set(xlabel = "Iteration")
+            if phi_index == 0 and i == 0:
+                axs[0, 0].set(ylabel = "Count")
+                axs[1, 0].set(ylabel = "Count")
+                axs[2, 0].set(ylabel = "Theta")
+                if not no_ind:
+                    axs[3,0].set(ylabel = "Indicator average")
+                 
+            mut_string = context_string + ">" + mut_nuc_index_look_up[context_base]
+            try:
+                sub_phi_posterior = phi_row[:, phi_index]
+                
+                #sub_phi_posterior = [x[phi_index] for x in phi_posterior_distribution]
+                sub_p_posterior = p_row[:, phi_index]
+                #sub_p_posterior = [x[phi_index] for x in p_posterior_distribution]
+                sub_ind_posterior = []
+                if not no_ind:
+                    sub_ind_posterior = ind_row[:, phi_index]
+                    
+            except TypeError:
+                print("Error!!!!: ", mut_string)
+                continue 
+            axs[0, phi_index].hist(sub_p_posterior, alpha = 0.5, label = chain_label)
+            axs[0, phi_index].set(xlabel = "multinomial p")
+            axs[0, phi_index].set_title(mut_string)
+            axs[1, phi_index].hist(sub_phi_posterior, alpha = 0.5, label = chain_label)
+            axs[1, phi_index].set(xlabel = "Theta")
+ 
+            axs[2, phi_index].plot(x_vals, sub_phi_posterior, label = chain_label)
+            if not no_ind:
+                
+                pad_ind_y_vals = np.append(np.zeros(250), sub_ind_posterior, axis = 0)
+                pad_ind_y_vals = np.append(pad_ind_y_vals, np.zeros(249), axis = 0)
+                moving_average_y_vals = moving_average(pad_ind_y_vals, n=500)
+                axs[3,phi_index].plot(x_vals, moving_average_y_vals, label = chain_label)
+               
+            if empirical_value_config_dict:
+                empirical_p = count_ground_truth_dict[context_string][context_base] / count_ground_truth_dict[context_string][4]
+                if i == 0:
+                    axs[0, phi_index].axvline(x = empirical_p, linestyle = 'dashed', label = "empirical estimate")
+                    
+            phi_index += 1
+    
+    print('+++++++')
+    
+    plt.show()
 
 def open_json_dict(f):
 
