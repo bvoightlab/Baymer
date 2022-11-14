@@ -139,6 +139,7 @@ def driver(config_file, plot_phis = False, empirical_value_config_file = False):
 
             ind_file = "{}{}_{}_{}_rs{}_indicator.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
             ind_data_list.append(ind_file)
+        phi_out_dir = None
         if plot_phis:
             phi_out_dir = "{}/phi_out_plots/".format(layer_output_dir)
             try:
