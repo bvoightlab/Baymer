@@ -139,13 +139,12 @@ def driver(config_file, plot_phis = False, empirical_value_config_file = False):
 
             ind_file = "{}{}_{}_{}_rs{}_indicator.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
             ind_data_list.append(ind_file)
-        phi_out_dir = None
-        if plot_phis:
-            phi_out_dir = "{}/phi_out_plots/".format(layer_output_dir)
-            try:
-                os.mkdir(phi_out_dir)
-            except FileExistsError:
-                pass
+        
+        phi_out_dir = "{}/phi_out_plots/".format(layer_output_dir)
+        try:
+            os.mkdir(phi_out_dir)
+        except FileExistsError:
+            pass
 
         plot_phi_chain(layer, pop, dataset, feature, random_seeds, phi_data_list, p_data_list, ind_data_list, phi_out_dir, index_context_dict, empirical_value_config_file, summary_posterior_dict[dataset][layer], thinned_burnin, plot_phis)
         
