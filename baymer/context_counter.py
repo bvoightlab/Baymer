@@ -142,6 +142,10 @@ def driver(config_file, feature, mer_length, context_output_file, offset, buffer
     chrom_results = [pool.apply(count_contexts, args=(chrom, fasta_file_dict, mer_length, offset, buffer_bp, unfolded, high_confidence)) for chrom in chrom_list]
     pool.close()
     
+    # testing
+    #for chrom in chrom_list:
+    #    chrom_context_count_dict = count_contexts(chrom, fasta_file_dict, mer_length, offset, buffer_bp, unfolded, high_confidence)
+    
     #### COMBINE DICTIONARIES TOGETHER ####
     context_count_master_df = None
     first_it = True
@@ -168,9 +172,10 @@ def count_contexts(chrom, fasta_file_dict, mer_length, offset, buffer_bp, unfold
     full_region_length = mer_length
     if buffer_bp:   
         full_region_length = buffer_bp * 2 + 1
+    print(full_region_length)
     
     mut_nuc_pos = int(full_region_length / 2)
-     
+    print(mut_nuc_pos) 
     odd_adjustment = 0
     if float(mer_length) % 2.0 == 0.0 and offset > 0:
         odd_adjustment = 1
@@ -178,8 +183,7 @@ def count_contexts(chrom, fasta_file_dict, mer_length, offset, buffer_bp, unfold
     flank = int(mer_length / 2)
     left_flank = flank + offset - odd_adjustment 
     right_flank = mer_length - left_flank
-    left_seq_edge = buffer_bp-left_flank
-    right_seq_edge =  buffer_bp-right_flank
+    left_seq_edge = max(buffer_bp-left_flank, 0)
  
     metadata_dict = {'n': 0, 'nuc_n': 0, 'total_regions': 0}
 
@@ -201,6 +205,8 @@ def count_contexts(chrom, fasta_file_dict, mer_length, offset, buffer_bp, unfold
         with open(fasta_file, 'r') as handle:
             for record in SeqIO.parse(handle, 'fasta'):
                 fasta_seq = str(record.seq)
+                if len(fasta_seq) < full_region_length:
+                    continue
                 fasta_pos = int(str(record.id).strip().split(':')[1].split('-')[0]) + mut_nuc_pos + 1
                 iterate_through_fasta_seq(context_count_dict, fasta_seq, fasta_pos, mer_length, offset, mut_nuc_pos, full_region_length, unfolded, left_seq_edge, high_confidence)
     
@@ -247,8 +253,15 @@ def add_mer_to_dict(current_region, mer_length, mut_nuc_pos, context_count_dict,
  
     even_odd_index = fasta_pos % 2
     
-    context_count_dict[current_mer][even_odd_index] += 1 
-
+   
+    try:
+        context_count_dict[current_mer][even_odd_index] += 1 
+    except KeyError:
+        print("e-o-index: ", even_odd_index)
+        print(current_mer)
+        print(current_region)
+        print(left_seq_edge)
+        sys.exit() 
 
 ## find the reverse complementary mer
 ## MULTIPLE CALLS -- called by add_mer_to_dict
