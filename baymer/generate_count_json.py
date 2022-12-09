@@ -37,6 +37,7 @@ ARGUMENTS
     -f => <str> feature REQUIRED
     -d => <str> dataset REQUIRED
     --max-af => <float> maximum allele frequency which is considered OPTIONAL Default: 0.85
+    --min-ac => <int> minimum allele count to include OPTIONAL Default 0
 ASSUMPTIONS
     * Both datasets are from the same feature
     * Only includes autosomal data
@@ -54,7 +55,7 @@ ASSUMPTIONS
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "c:o:p:f:d:", ["max-af=", "quality=", "cc=", "mc="])
+        opts, args = getopt.getopt(sys.argv[1:], "c:o:p:f:d:", ["max-af=", "quality=", "cc=", "mc=", "min-ac="])
                                                               
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
@@ -79,10 +80,10 @@ def main(argv):
     # optional arguments
     max_af = float(options_dict.get("--max-af", 0.85))
     quality = options_dict.get("--quality", False)
-    
+    min_ac = int(options_dict.get("--min-ac", 1))
     print("Acceptable Inputs Given")
 
-    driver(config_file, mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af, quality)
+    driver(config_file, mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af, quality, min_ac)
 
 
 ###############################################################################
@@ -93,7 +94,7 @@ def main(argv):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(config_file, mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af=0.85, quality=False):
+def driver(config_file, mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af=0.85, quality=False, min_ac = 1):
     
     config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
     
@@ -109,6 +110,8 @@ def driver(config_file, mutation_count_file, context_count_file, feature, pop, d
     
     mutation_count_df['AF'] = mutation_count_df['AC'] / mutation_count_df['AN']
     mutation_count_df = mutation_count_df.loc[mutation_count_df["AF"] <= max_af]
+    mutation_count_df = mutation_count_df.loc[mutation_count_df["AC"] >= min_ac]
+    print(mutation_count_df.head()) 
     if quality is not False:
         mutation_count_df = mutation_count_df.loc[mutation_count_df["quality_score"] >= float(quality)]
     total_muts = mutation_count_df.count()[0]
@@ -120,7 +123,7 @@ def driver(config_file, mutation_count_file, context_count_file, feature, pop, d
     count_dicts_dict = get_count_dicts_from_df(mutation_count_df, context_count_dict, min_mer, max_mer)
 
     ## Now save each of the count dicts 
-    config_file = "{}/1_{}mer.{}.{}.hardcoded_count_files.yaml".format(output_dir, max_mer, pop, feature)
+    config_file = "{}/1_{}mer.{}.{}.{}.hardcoded_count_files.yaml".format(output_dir, max_mer, dataset, pop, feature)
     
     config = open(config_file, 'w')
     
@@ -223,12 +226,53 @@ def tabulate_max_window_counts_from_df(df, raw_count_dict, context_ref_index):
             max_count_dict[context][ref_index] = total_contexts 
         mutation = row['Mutation']
         count = row['counts']
-
+        
         mutation_index = mutation_index_dict[mutation]
         max_count_dict[context][mutation_index] = count
         max_count_dict[context][ref_index] -= count
     add_missing_contexts(max_count_dict, raw_count_dict, context_ref_index)
+    '''
+    # fix multiallelic sites by adding an additional context to the data
+    multiallelic_sites = df[df.duplicated(subset=["Chrom", "Position", "Context"], keep = False)]
+    grouped_multiallelic_sites = multiallelic_sites.groupby(["Chrom", "Position", 'Context']).size().reset_index(name='counts')
+    print(grouped_multiallelic_sites.head())
+    print(len(grouped_multiallelic_sites))
+    for idx, row in grouped_multiallelic_sites.iterrows():
+        context = row["Context"]
+        num_sites = row["counts"]
+        sites_to_add = num_sites - 1
+        max_count_dict[context][4] += sites_to_add
+    '''
+    qc_check_max_count_dict(max_count_dict)
+    
     return max_count_dict
+
+def qc_check_max_count_dict(max_count_dict):
+    
+    for c in max_count_dict:
+        ref_index = max_count_dict[c][5]
+        total_contexts = 0
+        total_no_muts = 0
+        for i in range(4):
+            muts = max_count_dict[c][i]
+            if muts < 0:
+                if i != ref_index:
+                    print("Error: this context has negative mutations")
+                    print(c)
+                    print(max_count_dict[c])
+                    help()
+                elif i == ref_index:
+                    max_count_dict[c][i] = 0
+            total_contexts += muts
+            if i == ref_index:
+                total_no_muts = muts
+
+        if total_contexts != max_count_dict[c][4]:
+            print("Error: miscounting in count dict")
+            print(c)
+            print(max_count_dict[c])
+            print("total contexts counted: ", total_contexts)
+            help()
 
 def add_missing_contexts(max_count_dict, raw_count_dict, context_ref_index):
     
