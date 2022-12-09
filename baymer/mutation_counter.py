@@ -38,6 +38,7 @@ ARGUMENTS
     -h => <boolean> specifies you only want high-confidence bases OPTIONAL
     --nygc => <bool> specifies the vcfs belong to nygc variants OPTIONAL Default: assumes gnomad
     --fasta-consistent => <bool> specifies that you would like enforce vcf consistency (e.g fasta is ancestral but vcf is not) OPTIONAL
+    --quality => <specifies that you would like to get VQSLOD scores OPTIONAL
 ASSUMPTIONS
     * fasta files only contain regions of interest
     * if the mer length is not odd, then default behavior is for the mutated nuc
@@ -51,6 +52,7 @@ ASSUMPTIONS
       you want to make sure that the entire window of possible asymmetries is included.
       I.e buffer of 10 corresponds to an asymmetric 11mer. Thus the full window to examine
       would be 21 total bp, surrounding the central nucleotide
+    * the vcf and fasta lines are sorted in the same order
 """)
     sys.exit(error_num)
 
@@ -60,7 +62,7 @@ ASSUMPTIONS
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "c:p:m:o:b:a:u:h", ['feature=', 'mo=', 'ac=', 'nygc', 'min', "fasta-consistent"])
+        opts, args = getopt.getopt(sys.argv[1:], "c:p:m:o:b:a:u:h", ['feature=', 'mo=', 'ac=', 'nygc', 'min', "fasta-consistent", "quality"])
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
         help() 
@@ -88,7 +90,8 @@ def main(argv):
     high_confidence = options_dict.get('-h', False)
     min_bool = options_dict.get('--min', False)
     fasta_consistent = options_dict.get('--fasta-consistent', False)
-    
+    quality_bool = options_dict.get('--quality', False)
+
     if high_confidence == '':
         high_confidence = True
 
@@ -101,11 +104,13 @@ def main(argv):
     if nygc_bool == "":
         nygc_bool = True
 
+    if quality_bool == "":
+        quality_bool = True
     check_arguments(mer_length, offset, buffer_bp)
 
     print("Acceptable Inputs Given")
 
-    driver(config_file, pop, feature, int(mer_length), mutation_output_file, int(offset), int(buffer_bp), unfolded, high_confidence, allele_count, nygc_bool, min_bool, fasta_consistent)
+    driver(config_file, pop, feature, int(mer_length), mutation_output_file, int(offset), int(buffer_bp), unfolded, high_confidence, allele_count, nygc_bool, min_bool, fasta_consistent, quality_bool)
 
 
 ## Makes sure that all the arguments given are congruent with one another.
@@ -148,7 +153,7 @@ def check_arguments(mer_length, offset, buffer_bp):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(config_file, pop, feature, mer_length, mutation_output_file, offset, buffer_bp, unfolded, high_confidence, allele_count, nygc_bool, min_bool, fasta_consistent):
+def driver(config_file, pop, feature, mer_length, mutation_output_file, offset, buffer_bp, unfolded, high_confidence, allele_count, nygc_bool, min_bool, fasta_consistent, quality_bool):
     
     #### GATHER/INIT GENERAL INFORMATION ####
     config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
@@ -160,11 +165,14 @@ def driver(config_file, pop, feature, mer_length, mutation_output_file, offset, 
     if not nygc_bool:
         quality_filter = "AS_VQSLOD"
 
+    if not quality_bool:
+        quality_filter = None
 
     ac_info = ['AC_' + pop, 'AN_' + pop, allele_count, min_bool, quality_filter]
     if nygc_bool or pop == "all_pops":
         ac_info = ['AC', 'AN', allele_count, min_bool, quality_filter]
     
+    print(ac_info)
     #### BEGIN PARALLELIZED CHROMOSOME COUNTS ####
     chrom_results = None
     with concurrent.futures.ProcessPoolExecutor() as executor:
@@ -226,8 +234,7 @@ def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, b
     flank = int(mer_length / 2)
     left_flank = flank + offset - odd_adjustment 
     right_flank = mer_length - left_flank
-    left_seq_edge = buffer_bp-left_flank
-    right_seq_edge =  buffer_bp-right_flank
+    left_seq_edge = max(buffer_bp-left_flank, 0)
  
     #mut_count_dict = initialize_mut_count_dict(left_flank, right_flank, unfolded)
     fasta_file = fasta_file_dict[chrom]
@@ -240,8 +247,8 @@ def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, b
         line = str(vcf.readline(), 'utf-8')
         if not line.startswith('##'):
             header_line = False        
-    relevant_vcf_list = get_next_appropriate_line(vcf, ac_info, fasta_pos = False)
     
+    relevant_vcf_list = get_next_appropriate_line(vcf, ac_info, fasta_pos = False)
     context_mutation_list = []
 
     # tracks the position from the start of the fasta string corresponding to the mut
@@ -260,6 +267,10 @@ def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, b
             fasta_seq_end_pos = int(str(record.id).strip().split(':')[1].split('-')[1]) - mut_nuc_pos + 1
             # check whether there are mutations within the interval given
             # make sure the vcf line is in the appropriate position
+            try:
+                relevant_vcf_list[0]
+            except TypeError:
+                print(relevant_vcf_list)
             if fasta_start_pos > relevant_vcf_list[0]:
                 relevant_vcf_list = get_next_appropriate_line(vcf, ac_info, fasta_pos = fasta_start_pos)
                 # if we have reached the end of the vcf
@@ -273,6 +284,7 @@ def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, b
             
             while mutations_within_interval:
                 mut_pos = int(relevant_vcf_list[0])
+                
                 adj_mut_pos = mut_pos - (fasta_start_pos - mut_nuc_pos)
                 # check for bug
                 if adj_mut_pos < mut_nuc_pos:
@@ -283,7 +295,6 @@ def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, b
                 start_interval = adj_mut_pos - mut_nuc_pos
                 end_interval = start_interval + full_region_length
                 current_region = fasta_seq[start_interval:end_interval]
-
                 valid_mer = check_valid_mer(current_region, high_confidence, full_region_length)
                 if not valid_mer:
                     relevant_vcf_list = get_next_appropriate_line(vcf, ac_info, mut_pos)
@@ -317,7 +328,11 @@ def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, b
                     current_mer = get_reverse_comp_mer(current_mer)
                     relevant_vcf_list[2] = get_reverse_comp_mer(relevant_vcf_list[2])
                 even_odd_index = mut_pos % 2
-                mutation_entry = [relevant_vcf_list[6], mut_pos, current_mer, relevant_vcf_list[2], float(relevant_vcf_list[3]), float(relevant_vcf_list[4]), float(relevant_vcf_list[5]), even_odd_index] 
+                try:
+                    quality_score = float(relevant_vcf_list[5])
+                except TypeError:
+                    quality_score = "NA"
+                mutation_entry = [relevant_vcf_list[6], mut_pos, current_mer, relevant_vcf_list[2], float(relevant_vcf_list[3]), float(relevant_vcf_list[4]), quality_score, even_odd_index] 
                 context_mutation_list.append(mutation_entry)
                 relevant_vcf_list = get_next_appropriate_line(vcf, ac_info, mut_pos)
                 if not relevant_vcf_list:
@@ -394,7 +409,12 @@ def get_next_appropriate_line(vcf, ac_info, fasta_pos = False):
         return False
     else:
         # subtract one to zero index the coordinates
-        return [int(line_list[1]), line_list[3], line_list[4], appropriate_line[0], appropriate_line[1], appropriate_line[2], int(line_list[0][3:])]
+        try:
+            chrom = int(line_list[0])
+        except ValueError:
+            chrom = int(line_list[0][3:])
+        
+        return [int(line_list[1]), line_list[3], line_list[4], appropriate_line[0], appropriate_line[1], appropriate_line[2], chrom]
 
 def check_line_status(line_list, ac_info):
     
@@ -405,12 +425,16 @@ def check_line_status(line_list, ac_info):
     info_col = line_list[7]
     info_line_list = info_col.strip().split(';')
     
+    annos_found_req = 3
+
     features_found = 0
     an = 0
     ac = 0
     quality_score = None
     min_bool = ac_info[3]
     quality_string = ac_info[4]
+    if quality_string == None:
+        annos_found_req = 2
     annos_found = 0
     for info_anno in info_line_list:
         split_info_anno = info_anno.strip().split('=')
@@ -427,19 +451,19 @@ def check_line_status(line_list, ac_info):
                     return False
 
             annos_found += 1
-            if annos_found == 3:
+            if annos_found == annos_found_req:
                 break
         elif feature == ac_info[1]:    
             an = int(split_info_anno[1])
             annos_found += 1
-            if annos_found == 3:
+            if annos_found == annos_found_req:
                 break
         elif feature == quality_string:
             quality_score = float(split_info_anno[1])
             annos_found += 1
-            if annos_found == 3:
+            if annos_found == annos_found_req:
                 break
-    if annos_found != 3:
+    if annos_found != annos_found_req:
         return False
     
     return (ac, an, quality_score)
