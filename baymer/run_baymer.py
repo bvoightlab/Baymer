@@ -124,24 +124,6 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
     set_probabilities_sample_dict = {'A': 0,
                                      'C': 0}
     data_layer = -1
-    set_start_dict = {}
-    if set_start:
-        set_start = int(set_start)
-        data_layer = set_start
-        likelihood_file = "{}/{}_{}_{}_rs{}_posterior_matrix.full_trace.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, set_start)
-        phis_file = "{}/{}_{}_{}_rs{}_phis.burned_in.thinned.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, set_start)
-        rate_matrix_file = "{}/{}_{}_{}_rs{}_rate_matrix.burned_in.thinned.layer_{}.npy".format(output_dir, pop, feature, dataset, random_seed, set_start)
-        index_file = "{}/index_dict.layer_{}.json".format(output_dir, set_start)     
-        #set_start_dict = yaml.load(open(set_start_yaml, 'r'), Loader=yaml.SafeLoader)
-        num_iterations, burnin = param_config_dict[set_start]["iteration_burnin"]
-        set_start_dict = {"data_layer": set_start,
-                          "burnin": burnin,
-                          "num_iterations": num_iterations,
-                          "thinning_parameter": param_config_dict[set_start]["thinning_parameter"],
-                          "phi_sample_matrix": phis_file,
-                          "rate_matrix": rate_matrix_file,
-                          "likelihood_matrix": likelihood_file,
-                          "index_dict": index_file}
     
     for layer in range(data_layer + 1, max_mer):
         print('================================\nTree layer: {}\n================================'.format(layer))
@@ -176,10 +158,6 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
       
 
         starting_hyperparameters = (proposal_sigma, sigma_sigma, c, slab_sigma, alpha, alpha_sigma, indicator_sampling)
-        # if you're starting midway through the tree, get the starting conditions
-        if data_layer != -1 and data_layer == layer - 1:
-            set_p_vec_sample_array, old_set_probabilities_array, post_thin_samples = prep_set_data_from_matrices(set_start_dict, data_layer)
-            context_list = get_context_list(set_start_dict)
         ## set starting conditions for next layer based on the randomly sampled order
         if layer > 0:
             # if this is the layer being continued, then the num iteratins and burnin have already been specified
@@ -189,10 +167,10 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
             sample_order = np.random.choice(post_thin_samples, num_iterations)
             first_sample = sample_order[0]
         # get the arrays for each edge in this layer
-        phi_array, p_vec_array, indicator_array, context_list, leaf_counts_array, phi_probabilities_array, alpha_probabilities_array = initialize_layer_tree_edge_list(layer, layer_size, max_mer, context_list, p_vec_array, sigmas, alpha_probs, set_p_vec_sample_array, leaf_count_dict, first_sample, random_seed, zero_init, oppo_asymmetry)
+        phi_array, p_vec_array, indicator_array, context_list, leaf_counts_array, phi_probabilities_array, alpha_probabilities_array, zero_contexts = initialize_layer_tree_edge_list(layer, layer_size, max_mer, context_list, p_vec_array, sigmas, alpha_probs, set_p_vec_sample_array, leaf_count_dict, first_sample, random_seed, zero_init, oppo_asymmetry)
         print("layer arrays initialized")
 
-        leaf_likelihood_array = get_leaf_likelihood_array(layer_size, leaf_counts_array, p_vec_array) 
+        leaf_likelihood_array = get_leaf_likelihood_array(layer_size, leaf_counts_array, p_vec_array, zero_contexts) 
         set_probability = old_set_probabilities_array[first_sample]
         
         ## init numpy data sample matrices
@@ -261,7 +239,8 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
             iteration += 1
             if not post_burnin:
                 if not adaptive_winddown:
-                    if iteration > (burnin - 20000):
+                    adaptive_winddown_window = min([20000, int(burnin / 2)])
+                    if iteration > (burnin - adaptive_winddown_window):
                         adaptive_winddown = True
                         ## set the proposal parameters based on the average of the previous 500
                         batch = int(iteration / BATCH)
@@ -288,29 +267,29 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
                                
                 #### Using the current sample, initialize the state of the layers of the tree already estimated
                 set_probability = old_set_probabilities_array[current_sample]
-                set_p_vec_array = set_p_vec_sample_array[:, current_sample, :] 
-                p_vec_array, leaf_likelihood_array = init_set_edges(set_p_vec_array, phi_array, leaf_counts_array, layer_size, suppress) 
+                set_p_vec_array = set_p_vec_sample_array[current_sample, :, :] 
+                p_vec_array, leaf_likelihood_array = init_set_edges(set_p_vec_array, phi_array, leaf_counts_array, layer_size, zero_contexts, suppress) 
                 
                 # sample a new tree status
                 #### Sample a new value for every edge's indicator vector
                 alpha_probs = (np.log(1-alpha), np.log(alpha))
-                sample_new_indicator_gibbs(layer_size, alpha, alpha_probs, alpha_probabilities_array, indicator_array, phi_indicator_count_array, sigmas, phi_array, phi_probabilities_array, suppress)
+                sample_new_indicator_gibbs(layer_size, alpha, alpha_probs, alpha_probabilities_array, indicator_array, phi_indicator_count_array, sigmas, phi_array, phi_probabilities_array, zero_contexts, suppress)
             
                 #### Sample a new value of phi for every edge in this layer
-                sample_new_phis_decoupled(layer, layer_size, total_leaves, phi_array, set_p_vec_array, p_vec_array, phi_probabilities_array, indicator_array, sigmas, phi_sigma_array, c, alpha, phi_batch_array, phi_sampling_alpha_array, phi_indicator_count_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, suppress)
+                sample_new_phis_decoupled(layer, layer_size, total_leaves, phi_array, set_p_vec_array, p_vec_array, phi_probabilities_array, indicator_array, sigmas, phi_sigma_array, c, alpha, phi_batch_array, phi_sampling_alpha_array, phi_indicator_count_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, zero_contexts, suppress)
 
                 #### Sample a new value of alpha for this layer
-                alpha = sample_new_alphas_beta(layer_size, alpha, alpha_probabilities_array, indicator_array, alpha_accepted_array, suppress)
+                alpha = sample_new_alphas_beta(layer_size, alpha, alpha_probabilities_array, indicator_array, alpha_accepted_array, zero_contexts, suppress)
  
                 #### Sample a new value of sigma for this layer
                 if not set_sigma:
-                    sigmas, phi_probabilities_array, sigma_sigma = sample_new_sigmas(layer_size, sigma_sigma, sigma_batch_array, c, sigmas, indicator_array, phi_array, phi_probabilities_array, sigma_accepted_array, post_burnin, adaptive_winddown, batch, suppress)
+                    sigmas, phi_probabilities_array, sigma_sigma = sample_new_sigmas(layer_size, sigma_sigma, sigma_batch_array, c, sigmas, indicator_array, phi_array, phi_probabilities_array, sigma_accepted_array, post_burnin, adaptive_winddown, batch, zero_contexts, suppress)
                 
             
             elif layer == 0:
                 
                 #### Sample a new value of phi for every edge in this layer
-                sample_new_phis_decoupled_phi_naught(layer, layer_size, total_leaves, phi_array, p_vec_array, phi_sigma_array, phi_batch_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, suppress)
+                sample_new_phis_decoupled_phi_naught(layer, layer_size, total_leaves, phi_array, p_vec_array, phi_sigma_array, phi_batch_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, zero_contexts, suppress)
 
             # reset the batch
             if batch:
@@ -386,12 +365,12 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
         
 
 @njit()
-def init_set_edges(set_p_vec_array, phi_array, leaf_counts_array, layer_size, suppress): 
+def init_set_edges(set_p_vec_array, phi_array, leaf_counts_array, layer_size, zero_contexts, suppress): 
     
     # first get the new p_vec_array
     p_vec_array = set_p_vec_array * np.exp(phi_array)
     # run check to ensure all components are valid?
-    leaf_likelihood_array = get_leaf_likelihood_array(layer_size, leaf_counts_array, p_vec_array)
+    leaf_likelihood_array = get_leaf_likelihood_array(layer_size, leaf_counts_array, p_vec_array, zero_contexts)
     return p_vec_array, leaf_likelihood_array
 
 
@@ -400,12 +379,13 @@ def init_set_edges(set_p_vec_array, phi_array, leaf_counts_array, layer_size, su
 ############################################################
 
 @njit()
-def sample_new_alphas_beta(layer_size, alpha, alpha_probabilities_array, indicator_array, alpha_accepted_array, suppress):
+def sample_new_alphas_beta(layer_size, alpha, alpha_probabilities_array, indicator_array, alpha_accepted_array, zero_contexts, suppress):
 
     ## ALPHAS are calculated using a Gibb's sampling step. Each alpha is drawn from a beta distribution
 
     indicator_sum = np.sum(indicator_array)
-    indicator_length = layer_size * 3
+    # note there is a dummy index (-1) in zero contexts. Thus this context shouldn't be counted for indicator length
+    indicator_length = layer_size * 3 - (len(zero_contexts) - 1)
     
     ## Get the current alpha posterior
     current_alpha_posterior = np.sum(alpha_probabilities_array)
@@ -423,13 +403,13 @@ def sample_new_alphas_beta(layer_size, alpha, alpha_probabilities_array, indicat
     # Update current values dependent on outcome of metropolis step
     
     if accept:
-        update_alpha_probabilities(proposal_alpha, alpha_probabilities_array, indicator_array, layer_size)
+        update_alpha_probabilities(proposal_alpha, alpha_probabilities_array, indicator_array, layer_size, zero_contexts)
         alpha = proposal_alpha
         alpha_accepted_array[0] += 1
     return alpha
 
 @njit(parallel = True)
-def update_alpha_probabilities(alpha, alpha_probabilities_array, indicator_array, layer_size):
+def update_alpha_probabilities(alpha, alpha_probabilities_array, indicator_array, layer_size, zero_contexts):
     
     indicator_1_probability = np.log(alpha)
     indicator_0_probability = np.log(1-alpha)
@@ -437,10 +417,13 @@ def update_alpha_probabilities(alpha, alpha_probabilities_array, indicator_array
     # update the probability of alpha according to indicator
     for i in prange(layer_size):
         for sub_index in range(3):
-            if indicator_array[i][sub_index] == 1:
-                alpha_probabilities_array[i][sub_index] = indicator_1_probability
-            elif indicator_array[i][sub_index] == 0:
-                alpha_probabilities_array[i][sub_index] = indicator_0_probability
+            if i in zero_contexts:
+                alpha_probabilities_array[i][sub_index] = 0
+            else:
+                if indicator_array[i][sub_index] == 1:
+                    alpha_probabilities_array[i][sub_index] = indicator_1_probability
+                elif indicator_array[i][sub_index] == 0:
+                    alpha_probabilities_array[i][sub_index] = indicator_0_probability
 
 
 ############################################################
@@ -520,10 +503,13 @@ def get_vectorized_phi_probabilities(layer_size, proposal_slab_sigma, proposal_s
 ############################################################
 
 @njit(parallel = True)
-def sample_new_phis_decoupled(layer, layer_size, total_leaves, phi_array, set_p_vec_array, p_vec_array, phi_probabilities_array, indicator_array, sigmas, phi_sigma_array, c, alpha, phi_batch_array,  phi_sampling_alpha_array, phi_indicator_count_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, suppress):    
+def sample_new_phis_decoupled(layer, layer_size, total_leaves, phi_array, set_p_vec_array, p_vec_array, phi_probabilities_array, indicator_array, sigmas, phi_sigma_array, c, alpha, phi_batch_array,  phi_sampling_alpha_array, phi_indicator_count_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, zero_contexts, suppress):    
     accepted_array = np.zeros(3 * layer_size)
     
     for i in prange(layer_size):
+        
+        if i in zero_contexts:
+            continue
         sub_indices = np.array([0,1,2])
         phi = phi_array[i]
         phi_probabilities = phi_probabilities_array[i]
@@ -538,6 +524,7 @@ def sample_new_phis_decoupled(layer, layer_size, total_leaves, phi_array, set_p_
         
         # for each phi sub index, propose and test a new value
         for sub_index in sub_indices:
+            success = True
             current_posterior = current_leaf_posterior + phi_probabilities[sub_index]
             sigma = sigmas[indicator_array[i][sub_index]]
             prop_p_vec = np.copy(p_vec)
@@ -548,12 +535,17 @@ def sample_new_phis_decoupled(layer, layer_size, total_leaves, phi_array, set_p_
             # first sample from the phis
             ## first flip a coin to decide which distribution to sample from
             dist = indicator_array[i][sub_index]
-            prop_sub_phi = np.random.normal(loc = phi[sub_index], scale = phi_sigma * c**(1-dist))
-            prop_sub_p_vec = np.exp(prop_sub_phi) * sub_parent_p_vec
+            success = False
+            prop_sub_phi = False
+            prop_sub_p_vec = False
+            while not success:
+                prop_sub_phi = np.random.normal(loc = phi[sub_index], scale = phi_sigma * c**(1-dist))
+                prop_sub_p_vec = np.exp(prop_sub_phi) * sub_parent_p_vec
             
-            if prop_sub_p_vec <= 0:
-                 continue
-            prop_p_vec[sub_index] = prop_sub_p_vec
+                prop_p_vec[sub_index] = prop_sub_p_vec
+                if prop_sub_p_vec > 0 and np.sum(prop_p_vec) < 1:
+                    success = True
+                
                 
             # get the new phi probability
             prop_sub_phi_probability = -np.log(sigma) - ((prop_sub_phi/sigma)**2)/2.0
@@ -606,7 +598,7 @@ def sample_new_phis_decoupled(layer, layer_size, total_leaves, phi_array, set_p_
     phi_accepted_array[0] += np.sum(accepted_array)
 
 @njit()
-def sample_new_phis_decoupled_phi_naught(layer, layer_size, total_leaves, phi_array, p_vec_array, phi_sigma_array, phi_batch_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, suppress):
+def sample_new_phis_decoupled_phi_naught(layer, layer_size, total_leaves, phi_array, p_vec_array, phi_sigma_array, phi_batch_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, zero_contexts, suppress):
      
     # for the case where you are at the root of the tree. The sampling procedure is slightly different
     p_vec = p_vec_array[0]
@@ -622,6 +614,8 @@ def sample_new_phis_decoupled_phi_naught(layer, layer_size, total_leaves, phi_ar
     # for each phi sub index, propose and test a new value
     count = -1
     for i in range(layer_size):
+        if i in zero_contexts:
+            continue
         phi = phi_array[i]
         p_vec = p_vec_array[i]
         leaf_likelihood = leaf_likelihood_array[i]
@@ -690,13 +684,15 @@ def sample_new_phis_decoupled_phi_naught(layer, layer_size, total_leaves, phi_ar
 
 
 @njit(parallel = True)
-def sample_new_indicator_gibbs(layer_size, alpha, alpha_probs, alpha_probabilities_array, indicator_array, phi_indicator_count_array, sigmas, phi_array, phi_probabilities_array, suppress):
+def sample_new_indicator_gibbs(layer_size, alpha, alpha_probs, alpha_probabilities_array, indicator_array, phi_indicator_count_array, sigmas, phi_array, phi_probabilities_array, zero_contexts, suppress):
     
     spike_alpha_prob, slab_alpha_prob = alpha_probs
     spike_sigma, slab_sigma = sigmas
     
     for i in prange(layer_size):
-   
+        if i in zero_contexts:
+            continue
+
         indicator = indicator_array[i]
         
         phi = phi_array[i]
@@ -773,10 +769,12 @@ def get_edge_likelihood_numba(p_vec, leaf_counts):
 
  
 @njit(parallel = True) 
-def get_leaf_likelihood_array(layer_size, leaf_counts_array, p_vec_array):
+def get_leaf_likelihood_array(layer_size, leaf_counts_array, p_vec_array, zero_contexts):
 
     leaf_likelihood_array = np.ones(layer_size)
     for i in prange(layer_size):
+        if i in zero_contexts:
+            continue
         p_vec = p_vec_array[i]
         leaf_counts = leaf_counts_array[i]
 
@@ -791,12 +789,12 @@ def get_set_p_vec_samples(layer_size, rate_matrix, post_thin_samples):
     
     next_layer_size = layer_size * 4
     set_p_vec_sample_array = np.zeros((next_layer_size, post_thin_samples, 3))
-
+    set_p_vec_sample_array = np.zeros((post_thin_samples, next_layer_size, 3))
     for parent_index in range(layer_size):
         parent_context_set_p_vec_samples = rate_matrix[:, parent_index]
         for index_mod in range(4):
             array_index = index_mod + (parent_index * 4)
-            set_p_vec_sample_array[array_index] = parent_context_set_p_vec_samples
+            set_p_vec_sample_array[:, array_index] = parent_context_set_p_vec_samples
     
     return set_p_vec_sample_array
     
@@ -814,48 +812,6 @@ def prep_leaf_count_dict(config_dict, pop, feature, max_mer, dataset):
     return leaf_count_dict
 
 
-def prep_set_data_from_matrices(set_start_dict, data_layer):
-
-    num_iterations = set_start_dict['num_iterations']
-    burnin = set_start_dict['burnin']
-    thinning_parameter = set_start_dict['thinning_parameter']
-
-    phi_sample_matrix_file = set_start_dict['phi_sample_matrix']
-    phi_sample_matrix = np.load(phi_sample_matrix_file)
-    layer_size = 4 ** data_layer * 2
-    
-    likelihood_matrix_file = set_start_dict['likelihood_matrix']
-    likelihood_matrix = np.load(likelihood_matrix_file)
-    
-    first_counted_iteration = None
-    for i in range((burnin + 1), (burnin + thinning_parameter + 1)):
-        if i % thinning_parameter != 0:
-            continue
-        else:
-            first_counted_iteration = i
-            break
-
-    set_probabilities_array = np.sum(likelihood_matrix[first_counted_iteration:num_iterations + 1:thinning_parameter, [0,1,3]], axis = 1)
-    post_thin_samples = len(set_probabilities_array)
-    
-    rate_matrix_file = set_start_dict['rate_matrix']
-    rate_matrix = np.load(rate_matrix_file)
-    
-    set_p_vec_sample_array = get_set_p_vec_samples(layer_size, rate_matrix, post_thin_samples)
-    
-    return set_p_vec_sample_array, set_probabilities_array, post_thin_samples
-
-
-def get_context_list(set_start_dict):
-    
-    index_file = set_start_dict['index_dict']
-    with open(index_file, 'r') as jFile:    
-        index_dict = json.load(jFile)
-
-    context_list = [index_dict[x] for x in index_dict]
-
-    return context_list
-
 def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list, old_p_vec_array, sigmas, alpha_probs, set_p_vec_sample_array, leaf_count_dict, first_sample, random_seed, zero_init, oppo_asymmetry = False):
     
     if random_seed:
@@ -871,6 +827,9 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
     leaf_count_components = 4**(int(max_mer) - int(layer))
     leaf_count_array = np.ones((layer_size, leaf_count_components))
     
+    # holds indices for contexts that have not been seen in the dataset
+    zero_contexts = [-1]
+
     spike_sigma, slab_sigma = sigmas
     spike_alpha_prob, slab_alpha_prob = alpha_probs 
 
@@ -888,6 +847,7 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
             
             # get leaf_counts
             leaf_contexts = get_leaf_contexts(context, max_mer, oppo_asymmetry)
+            
             leaf_counts = None
             if context == 'C':
                 leaf_counts = get_adjusted_leaf_counts(leaf_contexts, leaf_count_dict).astype(np.int32)
@@ -895,7 +855,10 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
                 leaf_counts = np.array([np.array(leaf_count_dict[x][0:4]) for x in leaf_contexts]).flatten().astype(np.int32)
             
             leaf_count_array[array_index] = leaf_counts
-            
+            if np.sum(leaf_counts) == 0:
+                print("ERROR: {} has zero contexts in this dataset")
+                help()
+                
     else:
         context_size = layer
         odd_bool = context_size % 2
@@ -917,6 +880,7 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
                 sys.exit()
             parent_index += 1
             index_mod = 0
+            zero_contexts_bool = False
             for nuc in ['A', 'C', 'G', 'T']:
                 array_index = index_mod + (parent_index * 4)
                 
@@ -927,16 +891,30 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
                     
                 context_list[array_index] = child_context
                 
+                # get leaf counts and check for zero contexts
+                leaf_contexts = get_leaf_contexts(child_context, max_mer, oppo_asymmetry)
+                leaf_counts = []
+                if C_bool:
+                    leaf_counts = get_adjusted_leaf_counts(leaf_contexts, leaf_count_dict).astype(np.int32)
+                else:
+                    leaf_counts = np.array([np.array(leaf_count_dict[x][0:4]) for x in leaf_contexts]).flatten().astype(np.int32)
+                
+                leaf_count_array[array_index] = leaf_counts
+                
+                if np.sum(leaf_counts) == 0:
+                    zero_contexts.append(array_index)
+                    zero_contexts_bool = True
+                    
                 # Init phi
                 init_phi = np.array([0, 0, 0])
                 init_p_vec = 0
                 init_indicator = np.array([0, 0, 0])
                 
     
-                parent_p_vec = set_p_vec_sample_array[array_index, first_sample, :]
+                parent_p_vec = set_p_vec_sample_array[first_sample, array_index, :]
                 success = False
                 while not success:
-                    if not zero_init:
+                    if not zero_init and not zero_contexts_bool:
                         init_phi = np.random.uniform(low = -0.7, high = 0.7, size = 3)
                     init_p_vec = parent_p_vec * np.exp(init_phi)
                     # make sure this p_vec is valid
@@ -947,36 +925,31 @@ def initialize_layer_tree_edge_list(layer, layer_size, max_mer, old_context_list
                 p_vec_array[array_index] = init_p_vec
                 
                 # Init indicator
-                if not zero_init:
+                if not zero_init and not zero_contexts_bool:
                     init_indicator = np.random.randint(2, size = 3)
                     indicator_array[array_index] = init_indicator
 
                 # Init sigma array, phi probabilities, alpha probabilities
                 count = 0
                 for j in init_indicator:
-                    sigma = slab_sigma
-                    alpha_prob = slab_alpha_prob
-                    if j == 0:
-                        sigma = spike_sigma
-                        alpha_prob = spike_alpha_prob
-                    sub_phi_probability = -np.log(sigma) - ((init_phi[count]/sigma)**2)/2.0
+                    sub_phi_probability = 0
+                    alpha_prob = 0
+                    if not zero_contexts_bool:
+                        sigma = slab_sigma
+                        alpha_prob = slab_alpha_prob
+                        if j == 0:
+                            sigma = spike_sigma
+                            alpha_prob = spike_alpha_prob
+                        sub_phi_probability = -np.log(sigma) - ((init_phi[count]/sigma)**2)/2.0
                     
                     phi_probabilities_array[array_index][count] = sub_phi_probability
                     alpha_probabilities_array[array_index][count] = alpha_prob
                     count += 1
-                # get leaf_counts
-                leaf_contexts = get_leaf_contexts(child_context, max_mer, oppo_asymmetry)
-                leaf_counts = []
-                if C_bool:
-                    leaf_counts = get_adjusted_leaf_counts(leaf_contexts, leaf_count_dict).astype(np.int32)
-                else:
-                    leaf_counts = np.array([np.array(leaf_count_dict[x][0:4]) for x in leaf_contexts]).flatten().astype(np.int32)
-                
-                leaf_count_array[array_index] = leaf_counts
 
+                        
                 index_mod += 1
 
-    return phi_array, p_vec_array, indicator_array, context_list, leaf_count_array, phi_probabilities_array, alpha_probabilities_array
+    return phi_array, p_vec_array, indicator_array, context_list, leaf_count_array, phi_probabilities_array, alpha_probabilities_array, np.array(zero_contexts)
 
 
 def get_adjusted_leaf_counts(leaf_contexts, leaf_count_dict):
