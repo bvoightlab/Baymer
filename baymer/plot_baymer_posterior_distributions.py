@@ -114,9 +114,9 @@ def driver(config_file, plot_phis = False, empirical_value_config_file = False):
 
         index_context_dict = open_json_dict(index_dict)
         num_iterations, burnin = config_dict[layer]["iteration_burnin"]
-        thinning_parameter = config_dict[layer]["thinning_parameter"]
-        thinned_burnin = 0
-
+        #thinning_parameter = config_dict[layer]["thinning_parameter"]
+        print("num iterations: ", num_iterations)
+        print("burnin: ", burnin)
         # make output directory
         dir_name = "layer_" + str(layer)
         layer_output_dir = output_dir + dir_name
@@ -146,7 +146,7 @@ def driver(config_file, plot_phis = False, empirical_value_config_file = False):
         except FileExistsError:
             pass
 
-        plot_phi_chain(layer, pop, dataset, feature, random_seeds, phi_data_list, p_data_list, ind_data_list, phi_out_dir, index_context_dict, empirical_value_config_file, summary_posterior_dict[dataset][layer], thinned_burnin, plot_phis)
+        plot_phi_chain(layer, pop, dataset, feature, random_seeds, phi_data_list, p_data_list, ind_data_list, phi_out_dir, index_context_dict, empirical_value_config_file, summary_posterior_dict[dataset][layer], plot_phis)
         
         # next sigmas, alphas, and indicators
         if layer != 0:
@@ -159,7 +159,7 @@ def driver(config_file, plot_phis = False, empirical_value_config_file = False):
                 else:
                     skip_sigma = True
             if not skip_sigma:
-                plot_sigma_chain(random_seeds, sigma_data_list, layer_output_dir, c, summary_posterior_dict[dataset][layer], thinned_burnin)
+                plot_sigma_chain(random_seeds, sigma_data_list, layer_output_dir, c, summary_posterior_dict[dataset][layer])
             
             alpha_data_list = []
             ind_data_list = []
@@ -169,22 +169,21 @@ def driver(config_file, plot_phis = False, empirical_value_config_file = False):
                 indicator_chain_matrix_file = "{}{}_{}_{}_rs{}_indicator.burned_in.thinned.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
                 ind_data_list.append(indicator_chain_matrix_file)
               
-            plot_alpha_chain(random_seeds, alpha_data_list, ind_data_list, layer_output_dir, summary_posterior_dict[dataset][layer], thinned_burnin)
+            plot_alpha_chain(random_seeds, alpha_data_list, ind_data_list, layer_output_dir, summary_posterior_dict[dataset][layer])
             
-            plot_indicator_distribution(random_seeds, ind_data_list, layer_output_dir, index_context_dict, summary_posterior_dict[dataset][layer], thinned_burnin)
+            plot_indicator_distribution(random_seeds, ind_data_list, layer_output_dir, index_context_dict, summary_posterior_dict[dataset][layer])
         # finally likelihoods
         for random_seed in random_seeds:
             likelihood_chain_matrix_file = "{}{}_{}_{}_rs{}_posterior_matrix.full_trace.layer_{}.npy".format(posterior_dir, pop, feature, dataset, random_seed, layer)
             likelihood_data_list.append(likelihood_chain_matrix_file)
-        
-        plot_likelihoods(random_seeds, likelihood_data_list, burnin, thinning_parameter, layer_output_dir, summary_posterior_dict[dataset][layer])
+        plot_likelihoods(random_seeds, likelihood_data_list, burnin, layer_output_dir, summary_posterior_dict[dataset][layer])
         
     posterior_dict_out_file = "{}/{}.{}.{}.final_posterior_summaries.json".format(output_dir, pop, feature, dataset)
     with open(posterior_dict_out_file, 'w') as jFile:
         json.dump(summary_posterior_dict, jFile)
     
 
-def plot_likelihoods(chain_lists, data_list, burnin, thinning_parameter, output_dir, summary_posterior_dict):
+def plot_likelihoods(chain_lists, data_list, burnin, output_dir, summary_posterior_dict):
 
     likelihood_label_dict = {0: 'phi probability',
                              1: 'alpha probability',
@@ -204,7 +203,8 @@ def plot_likelihoods(chain_lists, data_list, burnin, thinning_parameter, output_
         chain_label = "rs{}".format(chain)
         mat = data_list[i]
         data_matrix = np.load(mat)
-        thinned_burned_in_likelihoods = data_matrix[burnin::thinning_parameter]
+        print(data_matrix.shape)
+        thinned_burned_in_likelihoods = data_matrix[burnin::]
         if i == 0:
             all_chains = thinned_burned_in_likelihoods
         else:
@@ -225,12 +225,11 @@ def plot_likelihoods(chain_lists, data_list, burnin, thinning_parameter, output_
     fig = plt.figure(figsize = (fig_width, fig_height))
     grid = plt.GridSpec(row_count, 2, hspace=0.2, wspace=0.2)
     #print(x_vals)
-    row_count = 0
     for row in list(likelihood_label_dict.keys()):
         likelihood_type = likelihood_label_dict[row]
         ax1 = fig.add_subplot(grid[row,0])
         ax2 = fig.add_subplot(grid[row,1])
-        if row_count == 4:
+        if row == 4:
             ax1.set(xlabel = "Iteration")
             ax2.set(xlabel = "Iteration")
         ax1.set(ylabel = "Probability")
@@ -244,6 +243,11 @@ def plot_likelihoods(chain_lists, data_list, burnin, thinning_parameter, output_
             ax2.plot(x_vals[burnin:], y_vals[burnin:], label = chain_label)
             burned_in_title = "{} {} burned in iterations".format(likelihood_type, burnin)
             ax2.set_title(burned_in_title)
+
+            if row == 3:
+                print(y_vals[0:10])
+                print(np.mean(y_vals[1000:]))
+                
         ax1.legend()
         ax2.legend()
     output_file = "{}/posterior_likelihoods.png".format(output_dir)
@@ -251,7 +255,7 @@ def plot_likelihoods(chain_lists, data_list, burnin, thinning_parameter, output_
     plt.savefig(output_file)
  
 
-def plot_phi_chain(layer, pop, dataset, feature, chain_lists, phi_data_list, p_data_list, ind_data_list, output_dir, index_context_dict, empirical_value_config_file, summary_posterior_dict, thinned_burnin, plot_phis):
+def plot_phi_chain(layer, pop, dataset, feature, chain_lists, phi_data_list, p_data_list, ind_data_list, output_dir, index_context_dict, empirical_value_config_file, summary_posterior_dict, plot_phis):
     
     empirical_value_config_dict = False
     if empirical_value_config_file: 
@@ -282,12 +286,11 @@ def plot_phi_chain(layer, pop, dataset, feature, chain_lists, phi_data_list, p_d
         chain_label = "rs{}".format(chain)
         mat = phi_data_list[i]
         phi_data_matrix = np.load(mat)
-        mean_phis = np.mean(phi_data_matrix[thinned_burnin:, :, :], axis = 0).flatten()
-        print(len(mean_phis))
+        mean_phis = np.mean(phi_data_matrix, axis = 0).flatten()
 
         x_vals = range(len(phi_data_matrix))
         axs[0].hist(mean_phis, alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
-        axs[1].hist(phi_data_matrix[thinned_burnin:, :, :].flatten(), alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
+        axs[1].hist(phi_data_matrix.flatten(), alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
         axs[2].hist(phi_data_matrix[0, :, :].flatten(), alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
         axs[3].hist(phi_data_matrix[-1, :, :].flatten(), alpha = 0.5, label = chain_label, bins = np.arange(-2.5, 2.5, 0.01))
         mat = p_data_list[i]
@@ -300,24 +303,22 @@ def plot_phi_chain(layer, pop, dataset, feature, chain_lists, phi_data_list, p_d
         except FileNotFoundError:
             no_ind = True
             
-        print(no_ind)    
 
         index = 0
         open_dict = False
         mer_level = 0
         previous_context_length = -1
-        #print('++++++++')
         true_diff_list = []
         emp_diff_list = []
         #for row in transposed_data:
         for index in range(len(phi_data_matrix[0])):
             #phi_row = [list(x[index]) for x in phi_data_matrix]
             #p_row = [list(x[index]) for x in p_data_matrix]
-            phi_row = phi_data_matrix[thinned_burnin:, index, :]
-            p_row = p_data_matrix[thinned_burnin:, index, :]            
+            phi_row = phi_data_matrix[:, index, :]
+            p_row = p_data_matrix[:, index, :]            
             ind_row = []
             if not no_ind:
-                ind_row = ind_data_matrix[thinned_burnin:, index, :]
+                ind_row = ind_data_matrix[:, index, :]
             context_string = index_context_dict[str(index)]
             
             if i == 0:
@@ -484,7 +485,7 @@ def moving_average(a, n=3) :
     ret[n:] = ret[n:] - ret[:-n]
     return ret[n - 1:] / n
 
-def plot_alpha_chain(chain_lists, alpha_data_list, ind_data_list, output_dir, summary_posterior_dict, thinned_burnin):
+def plot_alpha_chain(chain_lists, alpha_data_list, ind_data_list, output_dir, summary_posterior_dict):
     
     num_chains = len(chain_lists)
     
@@ -503,9 +504,9 @@ def plot_alpha_chain(chain_lists, alpha_data_list, ind_data_list, output_dir, su
         chain = chain_lists[i]
         chain_label = "rs{}".format(chain)
         mat = alpha_data_list[i]
-        alpha_data_array = np.load(mat)[thinned_burnin:]
+        alpha_data_array = np.load(mat)
         ind_mat = ind_data_list[i]
-        ind_data_array = np.load(ind_mat)[thinned_burnin:]
+        ind_data_array = np.load(ind_mat)
         total_sub_phis = len(ind_data_array[0]) * 3
         
         index = 0
@@ -537,7 +538,7 @@ def plot_alpha_chain(chain_lists, alpha_data_list, ind_data_list, output_dir, su
     plt.savefig(file_name)
     plt.close(fig)
 
-def plot_sigma_chain(chain_lists, sigma_data_list, output_dir, c, summary_posterior_dict, thinned_burnin):
+def plot_sigma_chain(chain_lists, sigma_data_list, output_dir, c, summary_posterior_dict):
     
     num_chains = len(chain_lists)
     
@@ -556,7 +557,7 @@ def plot_sigma_chain(chain_lists, sigma_data_list, output_dir, c, summary_poster
         chain = chain_lists[i]
         chain_label = "rs{}".format(chain)
         mat = sigma_data_list[i]
-        sigma_data_array = np.load(mat)[thinned_burnin:]
+        sigma_data_array = np.load(mat)
         if i == 0:
             all_chains = sigma_data_array
         else:
@@ -591,7 +592,7 @@ def plot_sigma_chain(chain_lists, sigma_data_list, output_dir, c, summary_poster
     plt.savefig(file_name)
     plt.close(fig)
                  
-def plot_indicator_distribution(chain_lists, ind_data_list, output_dir, index_context_dict, summary_posterior_dict, thinned_burnin):
+def plot_indicator_distribution(chain_lists, ind_data_list, output_dir, index_context_dict, summary_posterior_dict):
 
     num_chains = len(chain_lists)
     all_chains_indicator_dict = {}
@@ -625,7 +626,7 @@ def plot_indicator_distribution(chain_lists, ind_data_list, output_dir, index_co
         change_per_iteration = np.zeros(total_iterations)
         for index in range(total_contexts):
             context_string = index_context_dict[str(index)]
-            phi_ind_array = ind_data_array[thinned_burnin:, index, :]
+            phi_ind_array = ind_data_array[:, index, :]
             if i == 0:
                 all_chains_indicator_dict[context_string] = phi_ind_array
             else:
@@ -692,7 +693,6 @@ def phi_plot(param_config_file, context_string, empirical_value_config_file):
     context_index = context_index_dict[context_string]
     num_iterations, burnin = config_dict[layer]["iteration_burnin"]
     thinning_parameter = config_dict[layer]["thinning_parameter"]
-    thinned_burnin = 0
 
     likelihood_data_list = []
     p_data_list = []  
@@ -762,11 +762,11 @@ def phi_plot(param_config_file, context_string, empirical_value_config_file):
         #for row in transposed_data:
         #phi_row = [list(x[index]) for x in phi_data_matrix]
         #p_row = [list(x[index]) for x in p_data_matrix]
-        phi_row = phi_data_matrix[thinned_burnin:, context_index, :]
-        p_row = p_data_matrix[thinned_burnin:, context_index, :]            
+        phi_row = phi_data_matrix[:, context_index, :]
+        p_row = p_data_matrix[:, context_index, :]            
         ind_row = []
         if not no_ind:
-            ind_row = ind_data_matrix[thinned_burnin:, context_index, :]
+            ind_row = ind_data_matrix[:, context_index, :]
         
         if i == 0:
             p_vec_all_chains_dict[context_string] = p_row
