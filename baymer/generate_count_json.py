@@ -37,6 +37,7 @@ ARGUMENTS
     -f => <str> feature REQUIRED
     -d => <str> dataset REQUIRED
     --max-af => <float> maximum allele frequency which is considered OPTIONAL Default: 0.85
+    --min-af => <float> minimum allele frequency which is considered OPTIONAL Default: 0
     --min-ac => <int> minimum allele count to include OPTIONAL Default 0
 ASSUMPTIONS
     * Both datasets are from the same feature
@@ -55,7 +56,7 @@ ASSUMPTIONS
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "c:o:p:f:d:", ["max-af=", "quality=", "cc=", "mc=", "min-ac="])
+        opts, args = getopt.getopt(sys.argv[1:], "c:o:p:f:d:", ["max-af=", "min-af=", "quality=", "cc=", "mc=", "min-ac="])
                                                               
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
@@ -79,11 +80,12 @@ def main(argv):
     
     # optional arguments
     max_af = float(options_dict.get("--max-af", 0.85))
+    min_af = float(options_dict.get("--min-af", 0.0))
     quality = options_dict.get("--quality", False)
     min_ac = int(options_dict.get("--min-ac", 1))
     print("Acceptable Inputs Given")
 
-    driver(config_file, mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af, quality, min_ac)
+    driver(config_file, mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af, min_af, quality, min_ac)
 
 
 ###############################################################################
@@ -94,12 +96,13 @@ def main(argv):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(config_file, mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af=0.85, quality=False, min_ac = 1):
+def driver(config_file, mutation_count_file, context_count_file, feature, pop, dataset, output_dir, max_af=0.85, min_af = 0, quality=False, min_ac = 1):
     
     config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
     
     # prepare the master count dict from the context count file
     context_count_dict = prepare_count_json_from_csv(context_count_file, dataset, config_dict)
+    
 
     # mutation count data
     mutation_count_df = pd.read_csv(mutation_count_file)
@@ -109,14 +112,18 @@ def driver(config_file, mutation_count_file, context_count_file, feature, pop, d
         mutation_count_df = mutation_count_df.loc[mutation_count_df["even_odd_bool"] == 1]
     
     mutation_count_df['AF'] = mutation_count_df['AC'] / mutation_count_df['AN']
-    mutation_count_df = mutation_count_df.loc[mutation_count_df["AF"] <= max_af]
+    mutation_count_df = mutation_count_df.loc[(mutation_count_df["AF"] < max_af) & (mutation_count_df["AF"] >= min_af)]
     mutation_count_df = mutation_count_df.loc[mutation_count_df["AC"] >= min_ac]
     print(mutation_count_df.head()) 
     if quality is not False:
         mutation_count_df = mutation_count_df.loc[mutation_count_df["quality_score"] >= float(quality)]
     total_muts = mutation_count_df.count()[0]
     print("variants counted from mutation file: ", total_muts)
-    
+    print("mean ac: ", np.mean(mutation_count_df["AC"]))
+    print("median ac: ", np.median(mutation_count_df["AC"]))
+    print("min ac: ", np.min(mutation_count_df["AC"])) 
+    print("max ac: ", np.max(mutation_count_df["AC"])) 
+    print("mean af: ", np.mean(mutation_count_df["AF"]))
     min_mer = 1
     max_mer = len(list(context_count_dict.keys())[0])
     
@@ -144,6 +151,7 @@ def driver(config_file, mutation_count_file, context_count_file, feature, pop, d
         config.write("      {}: {}\n".format(dataset, output_file))
         
     config.write('...')
+
 
 def prepare_count_json_from_csv(context_count_file, dataset, config_dict):
     
@@ -197,14 +205,32 @@ def get_count_dicts_from_df(df, raw_count_dict, min_mer, max_mer):
     if max_mer % 2 == 0:
         context_ref_index -= 1
 
+    folded_raw_count_dict = fold_raw_count_dict(raw_count_dict, context_ref_index)
 
-    max_count_dict = tabulate_max_window_counts_from_df(df, raw_count_dict, context_ref_index)
+    max_count_dict = tabulate_max_window_counts_from_df(df, folded_raw_count_dict, context_ref_index)
     ## TESTING
     total_count = 0
     n = 0
     print('max count dict generated')
     count_dicts_dict = extrapolate_context_counts_down_tree(max_count_dict, min_mer, max_mer)
     return count_dicts_dict
+
+def fold_raw_count_dict(raw_count_dict, context_ref_index):
+    
+    folded_count_dict = {}
+    for c in raw_count_dict:
+        total_contexts = raw_count_dict[c]
+        
+
+        if c[context_ref_index] not in "AC":
+            c = get_reverse_comp_mer(c)
+            
+        if c in folded_count_dict:
+            folded_count_dict[c] += total_contexts
+        else:
+            folded_count_dict[c] = total_contexts
+
+    return folded_count_dict
 
 def tabulate_max_window_counts_from_df(df, raw_count_dict, context_ref_index):
 
@@ -220,6 +246,7 @@ def tabulate_max_window_counts_from_df(df, raw_count_dict, context_ref_index):
         total_contexts = raw_count_dict[context]
         try:
             ref_index = max_count_dict[context][5]
+
         except KeyError:
             ref_index = mutation_index_dict[context[context_ref_index]]
             max_count_dict[context] = [0, 0, 0, 0, total_contexts, ref_index, context_ref_index]
@@ -246,6 +273,15 @@ def tabulate_max_window_counts_from_df(df, raw_count_dict, context_ref_index):
     qc_check_max_count_dict(max_count_dict)
     
     return max_count_dict
+
+def get_reverse_comp_mer(mer):
+
+    complement_dict = {"A":"T", "T":"A", "G":"C", "C":"G"}
+
+    reverse_seq_list = [complement_dict[nuc] for nuc in mer[::-1]]
+    reverse_seq = ''.join(reverse_seq_list)
+
+    return reverse_seq
 
 def qc_check_max_count_dict(max_count_dict):
     
