@@ -34,7 +34,6 @@ ARGUMENTS
     -b => <yaml> config file dataset 2 REQUIRED
     -o => <dir> output directory REQUIRED
     -s => <int> start layer OPTIONAL
-    -p => <float> percent difference between two estimates OPTIONAL Default: 0.10
     -r => <float> adjustment to make in first dataset OPTIONAL Default: 1.0
     -x => <bool> presence indicates to use the opposite even symmetry OPTIONAL
 """)
@@ -50,7 +49,7 @@ ARGUMENTS
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "a:b:o:s:p:r:x")
+        opts, args = getopt.getopt(sys.argv[1:], "a:b:o:s:r:x")
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
         help()
