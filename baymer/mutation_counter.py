@@ -220,6 +220,7 @@ def driver(config_file, pop, feature, mer_length, mutation_output_file, offset, 
 
 def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, buffer_bp, unfolded, high_confidence, fasta_consistent, ac_info):
     
+    non_ref_mutation_count = 0
     print(chrom)
     fasta_qc_list = [0, 0, 0]
     #### GATHER/INIT GENERAL INFORMATION ####
@@ -250,14 +251,15 @@ def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, b
     
     relevant_vcf_list = get_next_appropriate_line(vcf, ac_info, fasta_pos = False)
     context_mutation_list = []
-
+    invalid_mer_count = 0
     # tracks the position from the start of the fasta string corresponding to the mut
     full_region_length = mer_length
     if buffer_bp:
         #print("buffer bp: ", buffer_bp)
         full_region_length = buffer_bp * 2 + 1
         #print(full_region_length)
-        
+    
+
     mut_nuc_pos = int(full_region_length / 2)
     #### BEGIN READING THROUGH FASTA ####
     with open(fasta_file, 'r') as handle:
@@ -297,6 +299,7 @@ def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, b
                 current_region = fasta_seq[start_interval:end_interval]
                 valid_mer = check_valid_mer(current_region, high_confidence, full_region_length)
                 if not valid_mer:
+                    invalid_mer_count += 1
                     relevant_vcf_list = get_next_appropriate_line(vcf, ac_info, mut_pos)
                     # if we have reached the end of the vcf (relevant_vcf_list only equals False if it's the final mut)
                     if not relevant_vcf_list:
@@ -319,11 +322,19 @@ def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, b
 
                 # make sure the reference alleles are identical
                 if current_region[mut_nuc_pos].upper() != relevant_vcf_list[1]:
-                    print("Error: reference nucleotide is off")
-                    print(current_region[mut_nuc_pos].upper())
-                    print(relevant_vcf_list[1])
-                    print('--------')
-                    help()
+                    #print("Error: reference nucleotide is off")
+                    non_ref_mutation_count += 1
+                    #print(current_region[mut_nuc_pos].upper())
+                    #print(relevant_vcf_list[1])
+                    #print(relevant_vcf_list)
+                    #print('--------')
+                    relevant_vcf_list = get_next_appropriate_line(vcf, ac_info, mut_pos)
+                    if not relevant_vcf_list:
+                        break
+                    
+                    mutations_within_interval = bool(fasta_seq_end_pos >= relevant_vcf_list[0])
+                    continue
+                    #help()
                 if current_region[mut_nuc_pos].upper() not in middle_nucs:
                     current_mer = get_reverse_comp_mer(current_mer)
                     relevant_vcf_list[2] = get_reverse_comp_mer(relevant_vcf_list[2])
@@ -342,13 +353,15 @@ def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, b
             
             if not relevant_vcf_list:
                 break
-
+    
     ## close files ##
     vcf.close()
     
     print("VCF REF matched ancestral: ", fasta_qc_list[0])
     print("VCF ALT matched ancestral: ", fasta_qc_list[1])
     print("Could not find ancestral match: ", fasta_qc_list[2])
+    print("Fasta ref and vcf ref don't match: ", non_ref_mutation_count)
+    print("Invalid mers found: ", invalid_mer_count)
 
     return context_mutation_list
 
@@ -408,11 +421,10 @@ def get_next_appropriate_line(vcf, ac_info, fasta_pos = False):
     if last_mut:
         return False
     else:
-        # subtract one to zero index the coordinates
-        try:
-            chrom = int(line_list[0])
-        except ValueError:
-            chrom = int(line_list[0][3:])
+        if line_list[0][0:3] == "chr":
+            chrom = line_list[0][3:]
+        else:
+            chrom = line_list[0]
         
         return [int(line_list[1]), line_list[3], line_list[4], appropriate_line[0], appropriate_line[1], appropriate_line[2], chrom]
 
