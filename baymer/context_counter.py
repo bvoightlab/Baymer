@@ -26,26 +26,12 @@ ARGUMENTS
     --feature => <string> feature of interest REQUIRED
     -m => <int> mer length REQUIRED
     --co => <string> Specifies context count output file REQUIRED
-    -b => <int> buffer shift of the given fasta OPTIONAL
-          Default: same as the mer-length symmetric flank
-    -a => <int> if asymmetric, designates the offset from the center nucleotide
-          that is allowed OPTIONAL Default: symmetric mers, (i.e -a 0)
+    -a => <boolean> alternation order OPTIONAL Default: start adding to the 5' side of context 
     -u => <boolean> specifies that you want unfolded contexts OPTIONAL
     -h => <boolean> specifies you only want high-confidence bases OPTIONAL
 ASSUMPTIONS
     * fasta files only contain regions of interest
-    * if the mer length is not odd, then default behavior is for the mutated nuc
-      to be shifted down one. e.g 6mer, offset = 0, => NNN*NNN
-    * for odd mers, if -a flag is used, the offset should not exceed 
-      the mer flank length in either direction
-    * Positive and negative offset values move the central nucleotide
-      closer to the end and start of the fasta, respectively
-      e.g 5mer, 0 => NN*NN ; 5mer, +1 => NNN*N ; 5mer, -1=>  N*NNN
-    * Assumes that if there is a buffer, then it's being used in the pipeline and 
-      you want to make sure that the entire window of possible asymmetries is included.
-      I.e buffer of 10 corresponds to an asymmetric 11mer. Thus the full window to examine
-      would be 21 total bp, surrounding the central nucleotide
-NOTES
+    * mer length is odd
 """)
     sys.exit(error_num)
 
@@ -55,7 +41,7 @@ NOTES
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "c:p:m:o:b:a:u:h", ['feature=', 'co='])
+        opts, args = getopt.getopt(sys.argv[1:], "c:p:m:o:au:h", ['feature=', 'co='])
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
         help() 
@@ -74,52 +60,26 @@ def main(argv):
         help()
     
     ## Optional arguments
-    buffer_bp = options_dict.get('-b', 0)
-    offset = options_dict.get('-a', 0)
+    alternation_order = options_dict.get('-a', "right")
+    if alternation_order == "":
+        alternation_order = "left"
     unfolded = options_dict.get('-u', False)
+    if unfolded == "":
+        unfolded = True
     high_confidence = options_dict.get('-h', False)
     if high_confidence == '':
         high_confidence = True
-    check_arguments(mer_length, offset, buffer_bp)
-
     print("Acceptable Inputs Given")
 
-    driver(config_file = config_file, feature = feature, mer_length = int(mer_length), context_output_file = context_output_file, offset = int(offset), buffer_bp = int(buffer_bp), unfolded = unfolded, high_confidence = high_confidence)
+    driver(config_file = config_file, feature = feature, mer_length = int(mer_length), context_output_file = context_output_file, alternation_order = alternation_order, unfolded = unfolded, high_confidence = high_confidence)
 
 
-## Makes sure that all the arguments given are congruent with one another.
-## ONE-TIME CALL -- called by main
-
-def check_arguments(mer_length, offset, buffer_bp):  
-    
-    for in_value in [mer_length, offset, buffer_bp]:
-        try:
-            value = int(in_value)
-        except ValueError:
-            print("Error: Unexpected non-integer value for input")
-            help()
     
     mer_length = int(mer_length)
-    offset = int(offset)
-    buffer_bp = int(buffer_bp)
+    if mer_length % 2 != 0:
+        print("Error: Mer length is not odd")
 
-    # check that the offset does not overshoot the mer length
-    if offset != 0:
-        flank = int(mer_length / 2)
-        if abs(offset) > flank:
-            print("Error: offset overshoots the mer length")
-            help()
-    
-    # when default buffer_bp is given, it is implied that the whole genome is being used
-    if buffer_bp != 0:
-        even_adj = 0
-        if mer_length % 2 == 0:
-            even_adj = 1
-        if (int(mer_length / 2) + abs(offset) - even_adj) > buffer_bp:
-            print("Total length of area necessary: {}".format(int(mer_length / 2) + abs(offset) - even_adj))
-            print("Buffer area given: {}".format(buffer_bp))
-            print("Error: specified mer overshoots the buffer region")
-            help()
+    offset = int(offset)
 
 
 ###############################################################################
@@ -130,21 +90,27 @@ def check_arguments(mer_length, offset, buffer_bp):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(config_file, feature, mer_length, context_output_file, offset, buffer_bp, unfolded, high_confidence):
+def driver(config_file, feature, mer_length, context_output_file, alternation_order, unfolded, high_confidence):
     
     #### GATHER/INIT GENERAL INFORMATION ####
+    mer_length = int(mer_length)
+    if mer_length % 2 != 0:
+        print("Error: Mer length is not odd")
+        help()
+
+    buffer_bp = mer_length / 2
+    offset = 0
+    if alternation_order == "left":
+        offset = -1
+
     config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
- 
+    
     fasta_file_dict = config_dict["features"][feature]['fastas']
     chrom_list = list(fasta_file_dict.keys()) 
     #### BEGIN PARALLELIZED CHROMOSOME COUNTS ####
     pool = mp.Pool(min([len(chrom_list), mp.cpu_count()]))
     chrom_results = [pool.apply(count_contexts, args=(chrom, fasta_file_dict, mer_length, offset, buffer_bp, unfolded, high_confidence)) for chrom in chrom_list]
     pool.close()
-    
-    # testing
-    #for chrom in chrom_list:
-    #    chrom_context_count_dict = count_contexts(chrom, fasta_file_dict, mer_length, offset, buffer_bp, unfolded, high_confidence)
     
     #### COMBINE DICTIONARIES TOGETHER ####
     context_count_master_df = None
@@ -172,10 +138,8 @@ def count_contexts(chrom, fasta_file_dict, mer_length, offset, buffer_bp, unfold
     full_region_length = mer_length
     if buffer_bp:   
         full_region_length = buffer_bp * 2 + 1
-    print(full_region_length)
     
     mut_nuc_pos = int(full_region_length / 2)
-    print(mut_nuc_pos) 
     odd_adjustment = 0
     if float(mer_length) % 2.0 == 0.0 and offset > 0:
         odd_adjustment = 1
