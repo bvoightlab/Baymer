@@ -88,7 +88,6 @@ def driver(config_file, plot_phis = False, empirical_value_config_file = False):
 
     config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
     
-    #train_data_list = ['EVEN', 'ODD']
     # gather overall info from config dict
     max_layer = config_dict['max_mer'] - 1
     pop = config_dict['pop']
@@ -97,7 +96,8 @@ def driver(config_file, plot_phis = False, empirical_value_config_file = False):
     random_seeds = config_dict['random_seeds']
     dataset = config_dict['dataset']
     c = config_dict['c']
-    
+    alternation_pattern = config_dict['alternation_pattern']
+
     # generate output directory if it doesn't exist yet. Automatically named after the dataset
     output_dir = posterior_dir + dataset + "_outplots/"
     try:
@@ -107,16 +107,12 @@ def driver(config_file, plot_phis = False, empirical_value_config_file = False):
 
     summary_posterior_dict = {dataset: {}}
     for layer in range(0, max_layer + 1):
-        print("Layer ", layer)
         summary_posterior_dict[dataset][layer] = {}
         # gather layer data
         index_dict = posterior_dir + "index_dict.layer_" + str(layer) + ".json"
 
         index_context_dict = open_json_dict(index_dict)
         num_iterations, burnin = config_dict[layer]["iteration_burnin"]
-        #thinning_parameter = config_dict[layer]["thinning_parameter"]
-        print("num iterations: ", num_iterations)
-        print("burnin: ", burnin)
         # make output directory
         dir_name = "layer_" + str(layer)
         layer_output_dir = output_dir + dir_name
@@ -182,6 +178,69 @@ def driver(config_file, plot_phis = False, empirical_value_config_file = False):
     with open(posterior_dict_out_file, 'w') as jFile:
         json.dump(summary_posterior_dict, jFile)
     
+    # make rate dicts
+    rate_dict_output_dir = output_dir + "/rate_dicts/"
+    try:
+        os.mkdir(rate_dict_output_dir)
+    except FileExistsError:
+        pass
+
+    generate_rate_files(summary_posterior_dict, pop, feature, alternation_pattern, rate_dict_output_dir)
+    
+def generate_rate_files(post_dict, pop, feature, alternation_pattern, output_dir):
+   
+    dataset = str(list(post_dict.keys())[0])
+    
+    for layer in post_dict[dataset]:
+        rate_dict = {}
+        print("LAYER: ", layer)
+        mer_string = "{}mer".format(int(layer) + 1)
+        post_contexts_dict = post_dict[dataset][layer]['p_vec']
+        ref_pos = get_ref_pos(int(layer) + 1, alternation_pattern)
+        for context in post_contexts_dict:
+            ref_nuc = context[ref_pos]
+            ref_nuc_id = 0 
+            if ref_nuc == 'C':
+                ref_nuc_id = 1 
+
+            post_rates = get_post_rates(post_contexts_dict[context], ref_nuc_id)
+
+            rate_dict[context] = post_rates
+
+        out_file = "{}/{}.{}.{}.{}.rate_dict.json".format(output_dir, mer_string, dataset, pop, feature)
+        with open(out_file, "w") as jFile:
+            json.dump(rate_dict, jFile)
+
+def get_ref_pos(mer_length, alternation_pattern):
+
+    flank = mer_length / 2 
+    ref_pos = flank
+    if mer_length % 2 == 0:
+        if alternation_pattern == "left":
+            ref_pos = flank
+        elif alternation_pattern == "right":
+            ref_pos = flank - 1 
+        else:
+            print('Error: Incorrect alternation pattern specified. Must be either "left" or "right"')
+    
+    return int(ref_pos)
+
+def get_post_rates(context_post_rates, ref_nuc_id):
+
+    rates = [0, 0, 0, 0]
+    sub_index = 0
+    for index in range(4):
+        if index == ref_nuc_id:
+            continue
+
+        #mean_post_p = np.mean([x[sub_index] for x in context_post_rates])
+        mean_post_p = context_post_rates['mean'][sub_index]
+        rates[index] = mean_post_p
+        sub_index += 1
+    rates[ref_nuc_id] = 1.0 - sum(rates)
+
+    return rates
+
 
 def plot_likelihoods(chain_lists, data_list, burnin, output_dir, summary_posterior_dict):
 
@@ -203,7 +262,6 @@ def plot_likelihoods(chain_lists, data_list, burnin, output_dir, summary_posteri
         chain_label = "rs{}".format(chain)
         mat = data_list[i]
         data_matrix = np.load(mat)
-        print(data_matrix.shape)
         thinned_burned_in_likelihoods = data_matrix[burnin::]
         if i == 0:
             all_chains = thinned_burned_in_likelihoods
@@ -224,7 +282,6 @@ def plot_likelihoods(chain_lists, data_list, burnin, output_dir, summary_posteri
     fig_height = row_count * 10
     fig = plt.figure(figsize = (fig_width, fig_height))
     grid = plt.GridSpec(row_count, 2, hspace=0.2, wspace=0.2)
-    #print(x_vals)
     for row in list(likelihood_label_dict.keys()):
         likelihood_type = likelihood_label_dict[row]
         ax1 = fig.add_subplot(grid[row,0])
@@ -237,17 +294,12 @@ def plot_likelihoods(chain_lists, data_list, burnin, output_dir, summary_posteri
         for chain in chain_lists:
             chain_label = "rs{}".format(chain)
             y_vals = y_vals_dict[chain][likelihood_type]
-            #print(y_vals)
             ax1.plot(x_vals, y_vals, label = chain)
             ax1.set_title(likelihood_type)
             ax2.plot(x_vals[burnin:], y_vals[burnin:], label = chain_label)
             burned_in_title = "{} {} burned in iterations".format(likelihood_type, burnin)
             ax2.set_title(burned_in_title)
 
-            if row == 3:
-                print(y_vals[0:10])
-                print(np.mean(y_vals[1000:]))
-                
         ax1.legend()
         ax2.legend()
     output_file = "{}/posterior_likelihoods.png".format(output_dir)
@@ -312,8 +364,6 @@ def plot_phi_chain(layer, pop, dataset, feature, chain_lists, phi_data_list, p_d
         emp_diff_list = []
         #for row in transposed_data:
         for index in range(len(phi_data_matrix[0])):
-            #phi_row = [list(x[index]) for x in phi_data_matrix]
-            #p_row = [list(x[index]) for x in p_data_matrix]
             phi_row = phi_data_matrix[:, index, :]
             p_row = p_data_matrix[:, index, :]            
             ind_row = []
@@ -352,8 +402,6 @@ def plot_phi_chain(layer, pop, dataset, feature, chain_lists, phi_data_list, p_d
             mut_indices = [0, 2, 3]
             if center_nuc == 'A':
                 mut_indices = [1, 2, 3]
-            #phi_posterior_distribution = phi_row
-            #p_posterior_distribution = thinned_p_row
             context_length = len(context_string)
             if context_length > previous_context_length:
                 open_dict = False
@@ -368,9 +416,7 @@ def plot_phi_chain(layer, pop, dataset, feature, chain_lists, phi_data_list, p_d
                 mut_string = context_string + ">" + mut_nuc_index_look_up[context_base]
                 try:
                     sub_phi_posterior = phi_row[:, phi_index]
-                    #sub_phi_posterior = [x[phi_index] for x in phi_posterior_distribution]
                     sub_p_posterior = p_row[:, phi_index]
-                    #sub_p_posterior = [x[phi_index] for x in p_posterior_distribution]
                     sub_ind_posterior = []
                     if not no_ind:
                         sub_ind_posterior = ind_row[:, phi_index]
@@ -419,7 +465,6 @@ def plot_phi_chain(layer, pop, dataset, feature, chain_lists, phi_data_list, p_d
     
     if not plot_phis:
         return
-    print('+++++++')
     # all data has been gathered
     for context_string in posterior_distribution_dict['phi']:
        
@@ -676,7 +721,6 @@ def phi_plot(param_config_file, context_string, empirical_value_config_file):
     
     config_dict = yaml.load(open(param_config_file, 'r'), Loader=yaml.SafeLoader)
     
-    #train_data_list = ['EVEN', 'ODD']
     # gather overall info from config dict
     max_layer = config_dict['max_mer'] - 1
     pop = config_dict['pop']
@@ -756,12 +800,8 @@ def phi_plot(param_config_file, context_string, empirical_value_config_file):
         open_dict = False
         mer_level = 0
         previous_context_length = -1
-        #print('++++++++')
         true_diff_list = []
         emp_diff_list = []
-        #for row in transposed_data:
-        #phi_row = [list(x[index]) for x in phi_data_matrix]
-        #p_row = [list(x[index]) for x in p_data_matrix]
         phi_row = phi_data_matrix[:, context_index, :]
         p_row = p_data_matrix[:, context_index, :]            
         ind_row = []
@@ -813,9 +853,7 @@ def phi_plot(param_config_file, context_string, empirical_value_config_file):
             try:
                 sub_phi_posterior = phi_row[:, phi_index]
                 
-                #sub_phi_posterior = [x[phi_index] for x in phi_posterior_distribution]
                 sub_p_posterior = p_row[:, phi_index]
-                #sub_p_posterior = [x[phi_index] for x in p_posterior_distribution]
                 sub_ind_posterior = []
                 if not no_ind:
                     sub_ind_posterior = ind_row[:, phi_index]
@@ -843,8 +881,6 @@ def phi_plot(param_config_file, context_string, empirical_value_config_file):
                     axs[0, phi_index].axvline(x = empirical_p, linestyle = 'dashed', label = "empirical estimate")
                     
             phi_index += 1
-    
-    print('+++++++')
     
     plt.show()
 
