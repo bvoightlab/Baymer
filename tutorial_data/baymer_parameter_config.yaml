@@ -5,16 +5,17 @@ feature: "cpg_islands"
 c: 0.04472136
 set_sigma: 0.8540486
 posterior_dir: "tutorial_data/tutorial_outs/tutorial_baymer_out/AFR/"
+alternation_pattern: "right"
 random_seeds:
   - 14
   - 18
 dataset: "ALL"
 0:
   iteration_burnin:
-    - 120000
-    - 100000
+    - 40000
+    - 20000
   thinning_parameter: 10
-  alpha: 0
+  alpha: 0.5
   slab_sigma: 0
   proposal_sigmas:
     alpha_sigma: 0
@@ -23,8 +24,8 @@ dataset: "ALL"
     indicator_sampling: 'gibbs'
 1:
   iteration_burnin:
-    - 120000
-    - 100000
+    - 40000
+    - 20000
   thinning_parameter: 10
   alpha: 0.99
   slab_sigma: 1.0
@@ -35,8 +36,8 @@ dataset: "ALL"
     indicator_sampling: 'gibbs'
 2:
   iteration_burnin:
-    - 120000
-    - 100000
+    - 40000
+    - 20000
   thinning_parameter: 10
   alpha: 0.8
   slab_sigma: 0.2
@@ -47,8 +48,8 @@ dataset: "ALL"
     indicator_sampling: 'gibbs'
 3:
   iteration_burnin:
-    - 120000
-    - 100000
+    - 40000
+    - 20000
   thinning_parameter: 10
   alpha: 0.8
   slab_sigma: 0.18
@@ -59,8 +60,8 @@ dataset: "ALL"
     indicator_sampling: 'gibbs'
 4:
   iteration_burnin:
-    - 120000
-    - 100000
+    - 40000
+    - 20000
   thinning_parameter: 10
   alpha: 0.6
   slab_sigma: 0.25
