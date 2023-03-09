@@ -38,7 +38,8 @@ ARGUMENTS
     -d => <str> dataset REQUIRED
     --max-af => <float> maximum allele frequency which is considered OPTIONAL Default: 0.85
     --min-af => <float> minimum allele frequency which is considered OPTIONAL Default: 0
-    --min-ac => <int> minimum allele count to include OPTIONAL Default 0
+    --min-ac => <int> minimum allele count to include OPTIONAL Default 1
+
 ASSUMPTIONS
     * Both datasets are from the same feature
     * Only includes autosomal data
