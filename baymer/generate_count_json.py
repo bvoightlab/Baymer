@@ -12,7 +12,7 @@
 
 ## NOTE Assumes symmetric-ish counts
 
-import cProfile
+#import cProfile
 import sys
 import getopt
 import os

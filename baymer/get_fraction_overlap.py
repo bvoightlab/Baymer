@@ -24,7 +24,6 @@ from scipy.stats import gaussian_kde
 import pandas as pd
 import numpy as np
 from numba import njit
-import general_utils
 
 
 def help(exit_num=1):
@@ -119,7 +118,7 @@ def driver(a_config_file, b_config_file, output_dir, start_layer, adj_ratio, opp
         # gather layer data
         index_dict = a_posterior_dir + "index_dict.layer_" + str(layer) + ".json"
 
-        index_context_dict = general_utils.open_json_dict(index_dict)
+        index_context_dict = json.load(open(index_dict, 'r'))
 
         # first thetas and p_vec
         a_theta_matrix, a_p_matrix = get_data_matrices(a_posterior_dir, a_pop, a_feature, a_dataset, a_random_seeds, layer) 
