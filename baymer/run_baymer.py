@@ -34,7 +34,6 @@ ARGUMENTS
     -p => <yaml> parameter values config file REQUIRED
     -r => <int> Index of random seed in parameter yaml OPTIONAL Default: 0           
     -z => <bool> initialize starting phis to spike and indicator = 1 OPTIONAL
-    -a => <bool> set opposite symmetry OPTIONAL Default: add 5' nucleotide to even contexts
     -t => <int> set number of threads to use OPTIONAL Defaults to the max available
 """)
     sys.exit(exit_num)
@@ -73,14 +72,11 @@ def main(argv):
     zero_init = options_dict.get("-z", False)
     if zero_init == "":
         zero_init = True
-    oppo_asymmetry = options_dict.get("-a", False)
-    if oppo_asymmetry == "":
-        oppo_asymmetry = True
 
 
     print("Acceptable Inputs Given")
     
-    driver(data_config_file, param_config_file, random_seed_index, zero_init, oppo_asymmetry, num_threads)
+    driver(data_config_file, param_config_file, random_seed_index, zero_init, num_threads)
 
 
 ###############################################################################
@@ -91,7 +87,7 @@ def main(argv):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(data_config_file, param_config_file, random_seed_index,  zero_init = False, oppo_asymmetry = False, num_threads = False, set_start = False, pop_override = False):
+def driver(data_config_file, param_config_file, random_seed_index,  zero_init = False, num_threads = False):
     
     if num_threads:
         numba.set_num_threads(num_threads)
@@ -116,8 +112,12 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
     output_dir = param_config_dict["posterior_dir"]
     dataset = param_config_dict["dataset"]
     pop = param_config_dict['pop']
-    if pop_override:
-        pop = pop_override
+
+    oppo_asymmetry = False
+    alternation_pattern = param_config_dict['alternation_pattern']
+    if alternation_pattern == "left":
+        oppo_asymmetry = True
+    
     feature = param_config_dict['feature']
     num_iterations, burnin = param_config_dict[0]['iteration_burnin']
     
@@ -162,7 +162,7 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
         spike_sigma = np.float32(slab_sigma * c)
         sigmas = (spike_sigma, slab_sigma)
         alpha_sigma = param_config_dict[layer]['proposal_sigmas']['alpha_sigma']
-
+        
         spike_alpha_prob = np.log(1-alpha)
         slab_alpha_prob = np.log(alpha)
         alpha_probs = (spike_alpha_prob, slab_alpha_prob)
@@ -260,12 +260,11 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
         batch = False
         ## loop through all the sample iterations for this layer
         while iteration < num_iterations:
-            if iteration % 1000 == 0:
-                print("iteration ", iteration)
-                #if layer > 0:
-                    #print(set_probability_vector[0:4])
+            
+            #if iteration % 1000 == 0:
+            #    print("iteration ", iteration)
+            
             iteration += 1
-            #time_start = time.time()
             if not post_burnin:
                 if not adaptive_winddown:
                     adaptive_winddown_window = min([20000, int(burnin / 2)])
@@ -294,30 +293,20 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
             if layer > 0:
                                
                 #### Using the current sample, initialize the state of the layers of the tree already estimated
-                #set_time = time.time()
                 
                 set_probability_vector, p_vec_array, set_p_vec_array, leaf_likelihood_array = init_set_edges(set_probability_vector, set_p_vec_array, p_vec_array, set_p_vec_sample_matrix, leaf_likelihood_array, old_set_probabilities_matrix, phi_array, leaf_counts_array, layer_size, zero_contexts, suppress) 
-                #print("set stuff: ", time.time() - set_time)
                 # sample a new tree status
                 #### Sample a new value for every edge's indicator vector
                 alpha_probs = (np.log(1-alpha), np.log(alpha))
-                #ind_time_start = time.time()
                 sample_new_indicator_gibbs(layer_size, alpha, alpha_probs, alpha_probabilities_array, indicator_array, phi_indicator_count_array, sigmas, phi_array, phi_probabilities_array, zero_contexts, suppress)
-                #print("ind stuff: ", time.time() - ind_time_start)
                 #### Sample a new value of phi for every edge in this layer
-                #phi_time_start = time.time()
                 sample_new_phis_decoupled(layer, layer_size, total_leaves, phi_array, set_p_vec_array, p_vec_array, phi_probabilities_array, indicator_array, sigmas, phi_sigma_array, c, alpha, phi_batch_array, phi_sampling_alpha_array, phi_indicator_count_array, leaf_likelihood_array, leaf_counts_array, phi_accepted_array, post_burnin, adaptive_winddown, batch, zero_contexts, suppress)
-                #print("phi stuff: ", time.time() - phi_time_start)
                 #### Sample a new value of alpha for this layer
-                #alpha_time_start = time.time()
                 alpha = sample_new_alphas_beta(layer_size, alpha, alpha_probabilities_array, indicator_array, alpha_accepted_array, zero_contexts, suppress)
-                #print("alpha stuff: ", time.time() - alpha_time_start)
                 #### Sample a new value of sigma for this layer
                 if not set_sigma:
                     sigmas, phi_probabilities_array, sigma_sigma = sample_new_sigmas(layer_size, sigma_sigma, sigma_batch_array, c, sigmas, indicator_array, phi_array, phi_probabilities_array, sigma_accepted_array, post_burnin, adaptive_winddown, batch, zero_contexts, suppress)
                
-                #print("iteration time: ", time.time() - time_start)
-                #print("--") 
             elif layer == 0:
                 
                 #### Sample a new value of phi for every edge in this layer
@@ -327,11 +316,9 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
                 phi_sigma_sample_matrix[batch-1] = np.copy(phi_sigma_array)
                 phi_alpha_sample_matrix[batch-1] = np.copy(phi_sampling_alpha_array)
                 phi_acceptance_batch_array[batch-1] = np.copy(phi_batch_array)
-                #alpha_probability_sample_matrix[batch - 1] = np.copy(alpha_probabilities_array).flatten()
                 batch = False
                 phi_batch_array = np.zeros(layer_size * 3, dtype = np.float32)
                 sigma_batch_array = np.array([0.0])
-                #set_probabilities_matrix[batch - 1] = np.sum(phi_probabilities_array, axis = 1) + np.sum(alpha_probabilities_array, axis = 1) + set_probability_vector
             
             ## set the new values for each matrix if it corresponds to one of the thinned samples
             if post_burnin and iteration % thinning_interval == 0:
@@ -383,7 +370,6 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
         
         set_p_vec_sample_matrix = rate_matrix
         set_p_vec_sample_array = set_p_vec_sample_matrix[0]
-        #set_p_vec_sample_array = get_set_p_vec_samples(layer_size, rate_matrix, post_thin_samples)
         
         # Collect the index dict and dump to file
         index_dict = {}
@@ -403,35 +389,25 @@ def driver(data_config_file, param_config_file, random_seed_index,  zero_init = 
 def init_set_edges(set_probability_vector, current_set_p_vec_array, current_p_vec_array, set_p_vec_sample_matrix, leaf_likelihood_array, old_set_probabilities_matrix, phi_array, leaf_counts_array, layer_size, zero_contexts, suppress): 
     new_set_p_vec_array = current_set_p_vec_array
     total_parent_samples, total_parent_contexts, sub_indices = set_p_vec_sample_matrix.shape
-    #fail_count = 0
     
     for parent_i in range(total_parent_contexts):
         
         random_sample_index = np.random.randint(0, total_parent_samples)
         new_parent_p_vec = set_p_vec_sample_matrix[random_sample_index, parent_i, :]
-        #new_parent_p_vec_array = np.tile(new_parent_p_vec, (4, 1))
         new_parent_p_vec_array = np.zeros((4, 3))
         new_children_p_vecs = np.zeros((4, 3))
         for i in range(4):
             new_parent_p_vec_array[i] = new_parent_p_vec
             new_children_p_vecs[i] = new_parent_p_vec * np.exp(phi_array[parent_i * 4 + i])
         
-        #child_phis = phi_array[parent_i * 4: parent_i * 4 + 4]
-        #new_children_p_vecs = np.exp(child_phis) * new_parent_p_vec_array
         if np.max(new_children_p_vecs) >= 1 or np.max(np.sum(new_children_p_vecs, axis = 1)) >= 1:
-            #fail_count += 1
             continue
         
         current_set_p_vec_array[parent_i * 4: parent_i * 4 + 4] = new_parent_p_vec_array
         current_p_vec_array[parent_i * 4: parent_i * 4 + 4] = new_children_p_vecs
-        #set_probability_vector[parent_i * 4: parent_i * 4 + 4] = np.tile(old_set_probabilities_matrix[random_sample_index, parent_i, :]* 0.25, (4, 1))
         for i in range(4):
             set_probability_vector[parent_i * 4 + i] = old_set_probabilities_matrix[random_sample_index, parent_i, :] * 0.25
     
-    #if fail_count > 100:
-    #    print("fail count: ", fail_count)
-        
-
     leaf_likelihood_array = get_leaf_likelihood_array(layer_size, leaf_counts_array, current_p_vec_array, zero_contexts)
     return set_probability_vector, current_p_vec_array, current_set_p_vec_array, leaf_likelihood_array
 
@@ -518,10 +494,7 @@ def sample_new_sigmas(layer_size, sigma_sigma, sigma_batch_array, c, sigmas, ind
     #if batch and not post_burnin:
     if batch and not adaptive_winddown:
         lsi = np.log(sigma_sigma) / 2
-        #adjustment = batch**(-0.75)
         adjustment = 0.01
-        #if adaptive_winddown:
-        #    adjustment = adjustment - (0.00002 * adaptive_winddown) 
         acceptance_rate = sigma_batch_array[0]
         if acceptance_rate > 0.44:
             lsi = lsi + adjustment
@@ -614,19 +587,9 @@ def sample_new_phis_decoupled(layer, layer_size, total_leaves, phi_array, set_p_
                 
                 if prop_sub_p_vec > 0 and np.sum(prop_p_vec) < 1:
                     success = True
-                    #print("layer-context index: ", layer, "-", i, "fail count: ", fail_count)
                 fail_count += 1
                 # try to find a phi value that works. If it fails 5 times, move on so we don't get stuck
                 if fail_count > 5:
-                    #print("---")
-                    #print("context index: ", i)
-                    #print("sub index: ", sub_index)
-                    #print("proposal p vec: ", prop_p_vec)
-                    #print("proposal sub phi: ", prop_sub_phi)
-                    #print("current p vec: ", p_vec)
-
-                    #print("current phi: ", phi)
-                    #print("current parent p vec: ", parent_p_vec)
                     break
             if not success:
                 continue
@@ -1116,15 +1079,6 @@ def get_final_nodes(repped_nodes, total_nodes):
 
     return final_leaf_nodes
 
-
-def find_siblings(node_index):
-    
-    node_age = node_index - ((node_index - 1) % 4) -1 
-
-    all_siblings = [node_age + sibling_mod for sibling_mod in range(1,5)]
-    all_siblings.remove(node_index)
-
-    return all_siblings
 
 def write_layer_report(output_dir, layer, dataset, pop, feature, random_seed, num_iterations, burnin, accepted_tuple, starting_hyperparameters, thinning_interval, post_thin_samples, set_sigma, zero_init):
     
