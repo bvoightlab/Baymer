@@ -74,14 +74,6 @@ def main(argv):
     driver(config_file = config_file, feature = feature, mer_length = int(mer_length), context_output_file = context_output_file, alternation_order = alternation_order, unfolded = unfolded, high_confidence = high_confidence)
 
 
-    
-    mer_length = int(mer_length)
-    if mer_length % 2 != 0:
-        print("Error: Mer length is not odd")
-
-    offset = int(offset)
-
-
 ###############################################################################
 #############################  DRIVER  ########################################
 ###############################################################################
@@ -94,15 +86,14 @@ def driver(config_file, feature, mer_length, context_output_file, alternation_or
     
     #### GATHER/INIT GENERAL INFORMATION ####
     mer_length = int(mer_length)
-    if mer_length % 2 != 0:
+    if mer_length % 2 != 1:
         print("Error: Mer length is not odd")
         help()
 
-    buffer_bp = mer_length / 2
+    buffer_bp = int(mer_length / 2)
     offset = 0
     if alternation_order == "left":
         offset = -1
-
     config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
     
     fasta_file_dict = config_dict["features"][feature]['fastas']

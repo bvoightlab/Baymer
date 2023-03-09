@@ -30,29 +30,18 @@ ARGUMENTS
     --mo => <string> Specifies mutation count output file REQUIRED
     --ac => <int> specifies the exact allele count in the dataset that you would like to keep REQUIRED
     --min => <bool> specifies that you want *at least* X number of AC
-    -b => <int> buffer shift of the given fasta OPTIONAL
-          Default: same as the mer-length symmetric flank
-    -a => <int> if asymmetric, designates the offset from the center nucleotide
-          that is allowed OPTIONAL Default: symmetric mers, (i.e -a 0)
+    -a => <bool> alternation order OPTIONAL Default: start adding to the 5' side of context
     -u => <boolean> specifies that you want unfolded contexts OPTIONAL
     -h => <boolean> specifies you only want high-confidence bases OPTIONAL
-    --nygc => <bool> specifies the vcfs belong to nygc variants OPTIONAL Default: assumes gnomad
-    --fasta-consistent => <bool> specifies that you would like enforce vcf consistency (e.g fasta is ancestral but vcf is not) OPTIONAL
-    --quality => <specifies that you would like to get VQSLOD scores OPTIONAL
+    --ac-syntax => <str> specifies the name of allele count information in the vcf file OPTIONAL Default: Uses "AC"
+    --an-syntax => <str> specifies the name of allele number information in the vcf file OPTIONAL Default: Uses "AN"
+    --quality => <str> specifies the quality score to be gathered from the vcf OPTIONAL Default: None collected
 ASSUMPTIONS
     * fasta files only contain regions of interest
-    * if the mer length is not odd, then default behavior is for the mutated nuc
-      to be shifted up one. e.g 6mer, offset = 0, => NNN*NN
-    * for odd mers, if -a flag is used, the offset should not exceed 
-      the mer flank length in either direction
-    * Positive and negative offset values move the central nucleotide
-      closer to the end and start of the fasta, respectively
-      e.g 5mer, 0 => NN*NN ; 5mer, +1 => NNN*N ; 5mer, -1=>  N*NNN
-    * Assumes that if there is a buffer, then it's being used in the pipeline and 
-      you want to make sure that the entire window of possible asymmetries is included.
-      I.e buffer of 10 corresponds to an asymmetric 11mer. Thus the full window to examine
-      would be 21 total bp, surrounding the central nucleotide
+    * vcf ref/alt designations are converted to match the fasta
+    * the mer length is odd
     * the vcf and fasta lines are sorted in the same order
+    * syntax designations are found in the info column of vcf
 """)
     sys.exit(error_num)
 
@@ -62,7 +51,7 @@ ASSUMPTIONS
 
 def main(argv): 
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], "c:p:m:o:b:a:u:h", ['feature=', 'mo=', 'ac=', 'nygc', 'min', "fasta-consistent", "quality"])
+        opts, args = getopt.getopt(sys.argv[1:], "c:p:m:o:a:u:h", ['feature=', 'mo=', 'ac=', 'ac-syntax=', 'an-syntax=', 'min', "quality="])
     except getopt.GetoptError:
         print("Error: Incorrect usage of getopts flags!")
         help() 
@@ -83,14 +72,16 @@ def main(argv):
         help()
     
     ## Optional arguments
-    buffer_bp = options_dict.get('-b', 0)
-    offset = options_dict.get('-a', 0)
+    alternation_order = options_dict.get('-a', "right")
+    if alternation_order == "":
+        alternation_order = "left"
     unfolded = options_dict.get('-u', False)
-    nygc_bool = options_dict.get('--nygc', False)
     high_confidence = options_dict.get('-h', False)
     min_bool = options_dict.get('--min', False)
-    fasta_consistent = options_dict.get('--fasta-consistent', False)
-    quality_bool = options_dict.get('--quality', False)
+    
+    quality_filter = options_dict.get('--quality', None)
+    ac_syntax = options_dict.get('--ac-syntax', "AC")
+    an_syntax = options_dict.get('--an-syntax', "AN")
 
     if high_confidence == '':
         high_confidence = True
@@ -98,51 +89,9 @@ def main(argv):
     if min_bool == '':
         min_bool = True
 
-    if fasta_consistent == "":
-        fasta_consistent = True
-    
-    if nygc_bool == "":
-        nygc_bool = True
-
-    if quality_bool == "":
-        quality_bool = True
-    check_arguments(mer_length, offset, buffer_bp)
-
     print("Acceptable Inputs Given")
 
-    driver(config_file, pop, feature, int(mer_length), mutation_output_file, int(offset), int(buffer_bp), unfolded, high_confidence, allele_count, nygc_bool, min_bool, fasta_consistent, quality_bool)
-
-
-## Makes sure that all the arguments given are congruent with one another.
-## ONE-TIME CALL -- called by main
-
-def check_arguments(mer_length, offset, buffer_bp):  
-    
-    for in_value in [mer_length, offset, buffer_bp]:
-        try:
-            value = int(in_value)
-        except ValueError:
-            print("Error: Unexpected non-integer value for input")
-            help()
-    
-    mer_length = int(mer_length)
-    offset = int(offset)
-    buffer_bp = int(buffer_bp)
-
-    # check that the offset does not overshoot the mer length
-    if offset != 0:
-        flank = int(mer_length / 2)
-        if abs(offset) > flank:
-            print("Error: offset overshoots the mer length")
-            help()
-    
-    # when default buffer_bp is given, it is implied that the whole genome is being used
-    if buffer_bp != 0: 
-        if (int(mer_length / 2) + abs(offset)) > buffer_bp:
-            print("Total length of area necessary: {}".format(int(mer_length / 2) + abs(offset)))
-            print("Buffer area given: {}".format(buffer_bp))
-            print("Error: specified mer overshoots the buffer region")
-            help()
+    driver(config_file, pop, feature, int(mer_length), mutation_output_file, alternation_order, unfolded, high_confidence, allele_count, ac_syntax, an_syntax, min_bool, quality_filter)
 
 
 ###############################################################################
@@ -153,24 +102,27 @@ def check_arguments(mer_length, offset, buffer_bp):
 ## drive the script ##
 ## ONE-TIME CALL -- called by main
 
-def driver(config_file, pop, feature, mer_length, mutation_output_file, offset, buffer_bp, unfolded, high_confidence, allele_count, nygc_bool, min_bool, fasta_consistent, quality_bool):
+def driver(config_file, pop, feature, mer_length, mutation_output_file, alternation_order, unfolded, high_confidence, allele_count, ac_syntax, an_syntax, min_bool, quality_filter):
     
     #### GATHER/INIT GENERAL INFORMATION ####
+    mer_length = int(mer_length)
+    if mer_length % 2 != 1:
+        print("Error: Mer length is not odd")
+        help()
+
+    buffer_bp = int(mer_length / 2)
+    offset = 0
+    if alternation_order == "left":
+        offset = -1
+
     config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
- 
+    fasta_consistent = True
+
     chrom_list = config_dict["chromosomes"]
     fasta_file_dict = config_dict['features'][feature]['fastas']
     vcf_file_dict = config_dict[pop]['vcf_files']
-    quality_filter = "VQSLOD"
-    if not nygc_bool:
-        quality_filter = "AS_VQSLOD"
 
-    if not quality_bool:
-        quality_filter = None
-
-    ac_info = ['AC_' + pop, 'AN_' + pop, allele_count, min_bool, quality_filter]
-    if nygc_bool or pop == "all_pops":
-        ac_info = ['AC', 'AN', allele_count, min_bool, quality_filter]
+    ac_info = [ac_syntax, an_syntax, allele_count, min_bool, quality_filter]
     
     print(ac_info)
     #### BEGIN PARALLELIZED CHROMOSOME COUNTS ####
