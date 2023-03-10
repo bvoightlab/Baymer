@@ -717,9 +717,9 @@ def plot_indicator_distribution(chain_lists, ind_data_list, output_dir, index_co
     plt.close(fig)
 
 
-def phi_plot(param_config_file, context_string, empirical_value_config_file):
+def phi_plot(config_file, context_string, empirical_value_config_file):
     
-    config_dict = yaml.load(open(param_config_file, 'r'), Loader=yaml.SafeLoader)
+    config_dict = yaml.load(open(config_file, 'r'), Loader=yaml.SafeLoader)
     
     # gather overall info from config dict
     max_layer = config_dict['max_mer'] - 1
