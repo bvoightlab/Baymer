@@ -170,7 +170,10 @@ def prepare_count_json_from_csv(context_count_file, dataset, config_dict):
    
     gw_full_df = pd.read_csv(context_count_file, sep='\t')
     dataset_df = gw_full_df[["Context"]]
-    dataset_df["Count"] = gw_full_df[names_list].sum(axis=1)
+    try:
+        dataset_df["Count"] = gw_full_df[names_list].sum(axis=1)
+    except KeyError:
+        dataset_df["Count"] = gw_full_df[["all_chr.odd_bp", "all_chr.even_bp"]].sum(axis=1)
     dataset_dict = dict(zip(dataset_df["Context"], dataset_df["Count"]))
     
     return dataset_dict 

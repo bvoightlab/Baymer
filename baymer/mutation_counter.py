@@ -190,8 +190,14 @@ def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, b
     left_seq_edge = max(buffer_bp-left_flank, 0)
  
     #mut_count_dict = initialize_mut_count_dict(left_flank, right_flank, unfolded)
-    fasta_file = fasta_file_dict[chrom]
-    vcf_file = vcf_file_dict[chrom]
+    try:
+        fasta_file = fasta_file_dict[chrom]
+    except KeyError:
+        fasta_file = fasta_file_dict["all_chr"]
+    try:    
+        vcf_file = vcf_file_dict[chrom]
+    except KeyError:
+        vcf_file = vcf_file_dict["all_chr"]
 
     ## open vcf file and find first instance of line corresponding to a variant of interest ##
     vcf = gzip.open(vcf_file, 'r')
@@ -216,6 +222,9 @@ def count_mutations(chrom, vcf_file_dict, fasta_file_dict, mer_length, offset, b
     #### BEGIN READING THROUGH FASTA ####
     with open(fasta_file, 'r') as handle:
         for record in SeqIO.parse(handle, 'fasta'):
+            fasta_chr = str(record.id).strip().split(':')[0]
+            if fasta_chr != relevant_vcf_list[6]:
+                continue
             fasta_seq = str(record.seq)
             fasta_start_pos = int(str(record.id).strip().split(':')[1].split('-')[0]) + mut_nuc_pos + 1
             fasta_seq_end_pos = int(str(record.id).strip().split(':')[1].split('-')[1]) - mut_nuc_pos + 1
