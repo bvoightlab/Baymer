@@ -10,8 +10,7 @@ After installing mini-conda, run the following commands to install Baymer:
 2) cd Baymer
 3) source install.sh
 
-Installation should take less than 5 minutes. After installing, you can activate the conda environment containing the installed Baymer package:
-conda activate baymer
+Installation should take less than 5 minutes. 
 
 ## Running Baymer
 
