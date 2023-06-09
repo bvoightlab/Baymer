@@ -12,3 +12,5 @@ dependencies:
   - scipy=1.7.3
   - seaborn=0.11.2
   - yaml=0.2.5
+- pip:
+  - baymer
