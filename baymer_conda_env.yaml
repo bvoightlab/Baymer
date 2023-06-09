@@ -12,4 +12,7 @@ dependencies:
   - scipy
   - seaborn
   - yaml
+  - jupyter
   - pip
+  - pip:
+    - .
