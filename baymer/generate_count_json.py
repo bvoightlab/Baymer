@@ -115,7 +115,6 @@ def driver(config_file, mutation_count_file, context_count_file, feature, pop, d
     mutation_count_df['AF'] = mutation_count_df['AC'] / mutation_count_df['AN']
     mutation_count_df = mutation_count_df.loc[(mutation_count_df["AF"] < max_af) & (mutation_count_df["AF"] >= min_af)]
     mutation_count_df = mutation_count_df.loc[mutation_count_df["AC"] >= min_ac]
-    print(mutation_count_df.head()) 
     if quality is not False:
         mutation_count_df = mutation_count_df.loc[mutation_count_df["quality_score"] >= float(quality)]
     total_muts = mutation_count_df.count()[0]
@@ -169,11 +168,22 @@ def prepare_count_json_from_csv(context_count_file, dataset, config_dict):
             names_list.append(even_chrom_name)
    
     gw_full_df = pd.read_csv(context_count_file, sep='\t')
-    dataset_df = gw_full_df[["Context"]]
     try:
-        dataset_df["Count"] = gw_full_df[names_list].sum(axis=1)
+        gw_full_df["Count"] = gw_full_df[names_list[1:]].sum(axis=1) 
+    
     except KeyError:
-        dataset_df["Count"] = gw_full_df[["all_chr.odd_bp", "all_chr.even_bp"]].sum(axis=1)
+        gw_full_df["Count"] = gw_full_df[["all_chr.odd_bp", "all_chr.even_bp"]].sum(axis=1) 
+
+    dataset_df = gw_full_df[["Context", "Count"]]
+
+    '''
+    try:
+        dataset_df = gw_full_df[names_list]
+        dataset_df
+        #dataset_df.loc[:, "Count"] = gw_full_df[names_list[1:]].sum(axis=1).copy()
+    except KeyError:
+        dataset_df.loc[:, "Count"] = gw_full_df[["all_chr.odd_bp", "all_chr.even_bp"]].sum(axis=1).copy()
+    '''
     dataset_dict = dict(zip(dataset_df["Context"], dataset_df["Count"]))
     
     return dataset_dict 
